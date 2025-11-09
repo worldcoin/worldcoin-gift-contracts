@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {IAddressBook} from "../../src/interfaces/IAddressBook.sol";
+import {IAddressBook} from "../../interfaces/IAddressBook.sol";
 
 contract MockAddressBook is IAddressBook {
     /// @notice Returns a timestamp representing when the address' verification will expire

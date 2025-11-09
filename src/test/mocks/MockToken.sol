@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {IERC20} from "../../src/interfaces/IERC20.sol";
+import {IERC20} from "../../interfaces/IERC20.sol";
 
 /// @notice Simple ERC20 implementation for testing that conforms to the local IERC20 interface.
 /// @dev This implementation is ONLY for testing purposes and should not be used in production, or be considered secure.

@@ -4,10 +4,10 @@ pragma solidity ^0.8.13;
 import {Test} from "forge-std/Test.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {MockToken} from "./mocks/MockToken.sol";
-import {IERC20} from "../src/interfaces/IERC20.sol";
+import {IERC20} from "../interfaces/IERC20.sol";
+import {WorldGiftManager} from "../WorldGiftManager.sol";
+import {IAddressBook} from "../interfaces/IAddressBook.sol";
 import {MockAddressBook} from "./mocks/MockAddressBook.sol";
-import {WorldGiftManager} from "../src/WorldGiftManager.sol";
-import {IAddressBook} from "../src/interfaces/IAddressBook.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 contract WorldGiftManagerTest is Test {

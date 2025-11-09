@@ -6,6 +6,7 @@ import {IERC20} from "./interfaces/IERC20.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {IAddressBook} from "./interfaces/IAddressBook.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 
 /// @title World Gift Manager
 /// @author Miguel Piedrafita
@@ -27,14 +28,20 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @notice Thrown when trying to redeem a gift that has already been redeemed
     error AlreadyRedeemed();
 
-    /// @notice Thrown when trying to create a gift with an invalid recipient
+    /// @notice Thrown when trying to send a gift with an invalid recipient
     error InvalidRecipient();
 
-    /// @notice Thrown when trying to create a gift with an invalid amount
+    /// @notice Thrown when trying to send a gift with an invalid amount
     error InvalidAmount();
 
-    /// @notice Thrown when trying to create a gift with an unallowed token
+    /// @notice Thrown when trying to send a gift with an unallowed token
     error TokenNotAllowed();
+
+    /// @notice Thrown when trying to send a gift with an invalid nonce
+    error InvalidNonce();
+
+    /// @notice Thrown when trying to send a gift with an invalid signature
+    error InvalidSignature();
 
     ///////////////////////////////////////////////////////////////////////////////
     ///                                  EVENTS                                ///
@@ -97,6 +104,9 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @notice A mapping of allowed ERC20 tokens
     mapping(address => bool) public isTokenAllowed;
 
+    /// @notice Whether a withdrawal nonce has been used
+    mapping(uint256 => bool) public isNonceConsumed;
+
     ///////////////////////////////////////////////////////////////////////////////
     ///                               CONSTRUCTOR                              ///
     //////////////////////////////////////////////////////////////////////////////
@@ -125,20 +135,54 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @custom:throws TokenNotAllowed if the token is not allowed for gifting
     /// @custom:throws InvalidRecipient if the recipient is the sender or zero address
     /// @return giftId The ID of the created gift
-    function gift(IERC20 token, address recipient, uint256 amount) public returns (uint256 giftId) {
-        require(amount > 0, InvalidAmount());
-        require(recipient != address(0), InvalidRecipient());
-        require(isTokenAllowed[address(token)], TokenNotAllowed());
+    function gift(IERC20 token, address recipient, uint256 amount) external returns (uint256) {
+        return _gift(token, msg.sender, recipient, amount);
+    }
 
-        unchecked {
-            giftId = nextGiftId++;
-        }
+    /// @notice Gift tokens to a recipient using a signed message
+    /// @param token The ERC20 token to gift
+    /// @param sender The address of the gift sender
+    /// @param recipient The address of the gift recipient
+    /// @param amount The amount of tokens to gift
+    /// @param nonce A unique nonce for this gift
+    /// @param signature The sender's signature over the gift parameters
+    /// @custom:throws InvalidAmount if the amount is zero
+    /// @custom:throws InvalidSignature if the signature is invalid
+    /// @custom:throws InvalidNonce if the nonce has already been used
+    /// @custom:throws TokenNotAllowed if the token is not allowed for gifting
+    /// @custom:throws InvalidRecipient if the recipient is the sender or zero address
+    /// @return giftId The ID of the created gift
+    function giftWithSig(
+        IERC20 token,
+        address sender,
+        address recipient,
+        uint256 amount,
+        uint256 nonce,
+        bytes calldata signature
+    ) external returns (uint256) {
+        require(!isNonceConsumed[nonce], InvalidNonce());
 
-        getGift[giftId] = Gift({token: address(token), recipient: recipient, amount: amount, redeemed: false});
+        bool isSigValid = SignatureCheckerLib.isValidSignatureNow(
+            sender,
+            _hashTypedData(
+                keccak256(
+                    abi.encode(
+                        keccak256("Gift(address token,address recipient,uint256 amount,uint256 nonce)"),
+                        address(token),
+                        recipient,
+                        amount,
+                        nonce
+                    )
+                )
+            ),
+            signature
+        );
 
-        emit GiftCreated(giftId, address(token), msg.sender, recipient, amount);
+        require(isSigValid, InvalidSignature());
 
-        SafeTransferLib.safeTransferFrom(address(token), msg.sender, address(this), amount);
+        isNonceConsumed[nonce] = true;
+
+        return _gift(token, sender, recipient, amount);
     }
 
     /// @notice Redeem a gifted token
@@ -146,7 +190,7 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @custom:throws GiftNotFound if the gift does not exist
     /// @custom:throws NotVerified if the recipient is not verified
     /// @custom:throws AlreadyRedeemed if the gift has already been redeemed
-    function redeem(uint256 giftId) public {
+    function redeem(uint256 giftId) external {
         Gift storage gift = getGift[giftId];
 
         require(!gift.redeemed, AlreadyRedeemed());
@@ -176,6 +220,31 @@ contract WorldGiftManager is Ownable, EIP712 {
     ///////////////////////////////////////////////////////////////////////////////
     ///                              INTERNAL LOGIC                            ///
     //////////////////////////////////////////////////////////////////////////////
+
+    /// @dev Gift tokens to a recipient
+    /// @param token The ERC20 token to gift
+    /// @param from The address of the gift sender
+    /// @param to The address of the gift recipient
+    /// @param amount The amount of tokens to gift
+    /// @custom:throws InvalidAmount if the amount is zero
+    /// @custom:throws TokenNotAllowed if the token is not allowed for gifting
+    /// @custom:throws InvalidRecipient if the recipient is the sender or zero address
+    /// @return giftId The ID of the created gift
+    function _gift(IERC20 token, address from, address to, uint256 amount) internal returns (uint256 giftId) {
+        require(amount > 0, InvalidAmount());
+        require(to != address(0), InvalidRecipient());
+        require(isTokenAllowed[address(token)], TokenNotAllowed());
+
+        unchecked {
+            giftId = nextGiftId++;
+        }
+
+        getGift[giftId] = Gift({token: address(token), recipient: to, amount: amount, redeemed: false});
+
+        emit GiftCreated(giftId, address(token), from, to, amount);
+
+        SafeTransferLib.safeTransferFrom(address(token), from, address(this), amount);
+    }
 
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
         name = "WorldGiftManager";
