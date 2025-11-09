@@ -204,6 +204,12 @@ contract WorldGiftManager is Ownable, EIP712 {
         SafeTransferLib.safeTransferFrom(gift.token, address(this), gift.recipient, gift.amount);
     }
 
+    /// @dev The EIP-712 domain separator
+    /// @return separator The EIP-712 domain separator
+    function DOMAIN_SEPARATOR() external view returns (bytes32 separator) {
+        separator = _domainSeparator();
+    }
+
     ///////////////////////////////////////////////////////////////////////////////
     ///                               CONFIG LOGIC                             ///
     //////////////////////////////////////////////////////////////////////////////

@@ -16,13 +16,17 @@ contract WorldGiftManagerTest is Test {
     MockAddressBook public addressBook;
     WorldGiftManager public giftManager;
 
-    address user1 = address(0x1);
-    address user2 = address(0x2);
+    address user1;
+    address user2;
+    uint256 user1Sig;
+    uint256 user2Sig;
 
     function setUp() public {
         token = new MockToken();
         secondToken = new MockToken();
         addressBook = new MockAddressBook();
+        (user1, user1Sig) = makeAddrAndKey("User 1");
+        (user2, user2Sig) = makeAddrAndKey("User 2");
         giftManager = new WorldGiftManager(addressBook);
 
         token.mint(address(this), 100 ether);
@@ -33,8 +37,6 @@ contract WorldGiftManagerTest is Test {
 
         giftManager.setTokenAllowed(address(token), true);
 
-        vm.label(user1, "User 1");
-        vm.label(user2, "User 2");
         vm.label(address(token), "Mock Token");
         vm.label(address(this), "Test Contract");
         vm.label(address(addressBook), "Mock Address Book");
@@ -77,12 +79,45 @@ contract WorldGiftManagerTest is Test {
         assertEq(token.balanceOf(address(giftManager)), amount);
     }
 
-    function testGiftingFailsWhenInsufficientBalance(uint256 balance) public {
-        vm.assume(balance > 0);
+    function testCanGiftWithSig(uint256 amount, address recipient, uint256 nonce) public {
+        vm.assume(amount > 0 && amount <= 100 ether);
+        vm.assume(recipient != address(0) && recipient != address(this));
+
+        vm.startPrank(user1);
+        token.mint(user1, 100 ether);
+        token.approve(address(giftManager), amount);
+        vm.stopPrank();
+
+        bytes memory signature = _generateGiftSignature(user1Sig, address(token), recipient, amount, nonce);
+
+        vm.expectEmit(true, true, true, true);
+        emit WorldGiftManager.GiftCreated(1, address(token), user1, recipient, amount);
+
+        uint256 giftId = giftManager.giftWithSig(token, user1, recipient, amount, nonce, signature);
+        assertEq(giftId, 1);
+
+        (address giftRecipient, address storedToken, uint256 giftAmount, bool redeemed) = giftManager.getGift(giftId);
+
+        assertEq(giftAmount, amount);
+        assertEq(redeemed, false);
+        assertEq(giftRecipient, recipient);
+        assertEq(storedToken, address(token));
+
+        assertEq(token.balanceOf(user1), 100 ether - amount);
+        assertEq(token.balanceOf(address(giftManager)), amount);
+    }
+
+    function testGiftingFailsWhenInsufficientBalance(uint256 amount) public {
+        vm.assume(amount > 0);
 
         vm.prank(user1);
         vm.expectRevert(SafeTransferLib.TransferFromFailed.selector);
-        giftManager.gift(token, user2, 1 ether);
+        giftManager.gift(token, user1, 1 ether);
+
+        bytes memory signature = _generateGiftSignature(user1Sig, address(token), user2, 1 ether, 1);
+
+        vm.expectRevert(SafeTransferLib.TransferFromFailed.selector);
+        giftManager.giftWithSig(token, user1, user2, 1 ether, 1, signature);
     }
 
     function testCannotGiftWhenTokenNotAllowed(address tokenToGift) public {
@@ -90,11 +125,21 @@ contract WorldGiftManagerTest is Test {
 
         vm.expectRevert(WorldGiftManager.TokenNotAllowed.selector);
         giftManager.gift(IERC20(tokenToGift), user1, 1 ether);
+
+        bytes memory signature = _generateGiftSignature(user1Sig, address(tokenToGift), user2, 1 ether, 1);
+
+        vm.expectRevert(WorldGiftManager.TokenNotAllowed.selector);
+        giftManager.giftWithSig(IERC20(tokenToGift), user1, user2, 1 ether, 1, signature);
     }
 
     function testCannotGiftZeroAmount() public {
         vm.expectRevert(WorldGiftManager.InvalidAmount.selector);
         giftManager.gift(token, user1, 0);
+
+        bytes memory signature = _generateGiftSignature(user1Sig, address(token), user2, 0, 1);
+
+        vm.expectRevert(WorldGiftManager.InvalidAmount.selector);
+        giftManager.giftWithSig(IERC20(token), user1, user2, 0, 1, signature);
     }
 
     function testCannotGiftToZeroAddress(uint256 amount) public {
@@ -102,6 +147,65 @@ contract WorldGiftManagerTest is Test {
 
         vm.expectRevert(WorldGiftManager.InvalidRecipient.selector);
         giftManager.gift(token, address(0), amount);
+
+        bytes memory signature = _generateGiftSignature(user1Sig, address(token), address(0), amount, 1);
+
+        vm.expectRevert(WorldGiftManager.InvalidRecipient.selector);
+        giftManager.giftWithSig(IERC20(token), user1, address(0), amount, 1, signature);
+    }
+
+    function testCannotGiftWithInvalidSignature(uint256 amount, address recipient, uint256 nonce) public {
+        vm.assume(recipient != address(0));
+        vm.assume(nonce != 1234); // used for mismatched nonce below
+        vm.assume(amount > 0 && amount <= 100 ether);
+
+        // Invalid signature: signed by different user
+        bytes memory invalidSignature = _generateGiftSignature(user2Sig, address(token), recipient, amount, nonce);
+
+        vm.expectRevert(WorldGiftManager.InvalidSignature.selector);
+        giftManager.giftWithSig(token, user1, recipient, amount, nonce, invalidSignature);
+
+        // Invalid signature: signed over different token
+        invalidSignature = _generateGiftSignature(user2Sig, address(0x1), recipient, amount, nonce);
+
+        vm.expectRevert(WorldGiftManager.InvalidSignature.selector);
+        giftManager.giftWithSig(token, user2, recipient, amount, nonce, invalidSignature);
+
+        // Invalid signature: signed over different amount
+        invalidSignature = _generateGiftSignature(user2Sig, address(token), recipient, amount, nonce);
+
+        vm.expectRevert(WorldGiftManager.InvalidSignature.selector);
+        giftManager.giftWithSig(token, user2, recipient, amount + 1, nonce, invalidSignature);
+
+        // Invalid signature: signed over different recipient
+        invalidSignature = _generateGiftSignature(user2Sig, address(token), recipient, amount, nonce);
+
+        vm.expectRevert(WorldGiftManager.InvalidSignature.selector);
+        giftManager.giftWithSig(token, user2, address(0x1234), amount, nonce, invalidSignature);
+
+        // Invalid signature: signed over different nonce
+        invalidSignature = _generateGiftSignature(user2Sig, address(token), recipient, amount, nonce);
+        vm.expectRevert(WorldGiftManager.InvalidSignature.selector);
+        giftManager.giftWithSig(token, user2, recipient, amount, 1234, invalidSignature);
+    }
+
+    function testCannotReuseNonceInGiftWithSig(uint256 amount, address recipient, uint256 nonce) public {
+        vm.assume(recipient != address(0));
+        vm.assume(amount > 0 && amount <= 100 ether);
+
+        vm.startPrank(user1);
+        token.mint(user1, 100 ether);
+        token.approve(address(giftManager), amount * 2);
+        vm.stopPrank();
+
+        bytes memory signature = _generateGiftSignature(user1Sig, address(token), recipient, amount, nonce);
+
+        uint256 giftId = giftManager.giftWithSig(token, user1, recipient, amount, nonce, signature);
+        assertEq(giftId, 1);
+
+        // Reusing the same nonce should fail
+        vm.expectRevert(WorldGiftManager.InvalidNonce.selector);
+        giftManager.giftWithSig(token, user1, recipient, amount, nonce, signature);
     }
 
     function testOnlyAdminCanSetTokenAllowed(address caller) public {
@@ -127,5 +231,38 @@ contract WorldGiftManagerTest is Test {
 
         giftManager.setTokenAllowed(address(secondToken), false);
         assertEq(giftManager.isTokenAllowed(address(secondToken)), false);
+    }
+
+    /// @dev Helper function to generate gift signature
+    /// @param privateKey The user's private key
+    /// @param amount The amount of tokens to gift
+    function _generateGiftSignature(uint256 privateKey, address token, address recipient, uint256 amount, uint256 nonce)
+        internal
+        view
+        returns (bytes memory)
+    {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(
+            privateKey,
+            _hashTypedDataV4(
+                keccak256(
+                    abi.encode(
+                        keccak256("Gift(address token,address recipient,uint256 amount,uint256 nonce)"),
+                        token,
+                        recipient,
+                        amount,
+                        nonce
+                    )
+                )
+            )
+        );
+
+        return abi.encodePacked(r, s, v);
+    }
+
+    /// @dev Helper function to hash EIP712 typed data for the gift signature
+    /// @param structHash The hash of the Gift struct
+    function _hashTypedDataV4(bytes32 structHash) internal view returns (bytes32) {
+        /// forge-lint: disable-next-line(asm-keccak256)
+        return keccak256(abi.encodePacked("\x19\x01", giftManager.DOMAIN_SEPARATOR(), structHash));
     }
 }

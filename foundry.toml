@@ -5,7 +5,7 @@ libs = ["lib"]
 via-ir = true
 optimizer = true
 gas_reports = ["*"]
-ignored_error_codes = [2519]
+
 
 [fmt]
 number_underscore = "thousands"
