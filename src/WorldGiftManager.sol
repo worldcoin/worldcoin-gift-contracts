@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
+import {EIP712} from "solady/utils/EIP712.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {IAddressBook} from "./interfaces/IAddressBook.sol";
@@ -9,7 +10,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 /// @title World Gift Manager
 /// @author Miguel Piedrafita
 /// @notice Allows World App users to send and redeem token gifts
-contract WorldGiftManager is Ownable {
+contract WorldGiftManager is Ownable, EIP712 {
     ///////////////////////////////////////////////////////////////////////////////
     ///                                  ERRORS                                ///
     //////////////////////////////////////////////////////////////////////////////
@@ -32,39 +33,37 @@ contract WorldGiftManager is Ownable {
     /// @notice Thrown when trying to create a gift with an invalid amount
     error InvalidAmount();
 
+    /// @notice Thrown when trying to create a gift with an unallowed token
+    error TokenNotAllowed();
+
     ///////////////////////////////////////////////////////////////////////////////
     ///                                  EVENTS                                ///
     //////////////////////////////////////////////////////////////////////////////
 
     /// @notice Emitted when the contract is initialized
-    /// @param token The address of the token contract
     /// @param addressBook The address of the address book contract
-    event WorldGiftManagerInitialized(
-        IERC20 indexed token,
-        IAddressBook indexed addressBook
-    );
+    event WorldGiftManagerInitialized(IAddressBook indexed addressBook);
 
     /// @notice Emitted when a gift is created
     /// @param giftId The ID of the created gift
+    /// @param token The address of the ERC20 token being gifted
     /// @param sender The address of the gift sender
     /// @param recipient The address of the gift recipient
     /// @param amount The amount of tokens gifted
     event GiftCreated(
-        uint256 indexed giftId,
-        address indexed sender,
-        address indexed recipient,
-        uint256 amount
+        uint256 indexed giftId, address indexed token, address indexed sender, address recipient, uint256 amount
     );
 
     /// @notice Emitted when a gift is redeemed
     /// @param giftId The ID of the redeemed gift
     /// @param recipient The address of the gift recipient
     /// @param amount The amount of tokens redeemed
-    event GiftRedeemed(
-        uint256 indexed giftId,
-        address indexed recipient,
-        uint256 amount
-    );
+    event GiftRedeemed(uint256 indexed giftId, address indexed recipient, uint256 amount);
+
+    /// @notice Emitted whenever a token allowlist entry is updated
+    /// @param token The ERC20 token whose status changed
+    /// @param allowed Whether the token is now allowed
+    event TokenAllowlistUpdated(address indexed token, bool allowed);
 
     ///////////////////////////////////////////////////////////////////////////////
     ///                            TYPE DECLARATIONS                            ///
@@ -111,7 +110,7 @@ contract WorldGiftManager is Ownable {
 
         _initializeOwner(msg.sender);
 
-        emit WorldGiftManager.WorldGiftManagerInitialized(token, addressBook);
+        emit WorldGiftManagerInitialized(addressBook);
     }
 
     ///////////////////////////////////////////////////////////////////////////////
@@ -123,34 +122,23 @@ contract WorldGiftManager is Ownable {
     /// @param recipient The address of the gift recipient
     /// @param amount The amount of tokens to gift
     /// @custom:throws InvalidAmount if the amount is zero
+    /// @custom:throws TokenNotAllowed if the token is not allowed for gifting
     /// @custom:throws InvalidRecipient if the recipient is the sender or zero address
     /// @return giftId The ID of the created gift
-    function gift(
-        IERC20 token,
-        address recipient,
-        uint256 amount
-    ) public returns (uint256 giftId) {
+    function gift(IERC20 token, address recipient, uint256 amount) public returns (uint256 giftId) {
         require(amount > 0, InvalidAmount());
         require(recipient != address(0), InvalidRecipient());
+        require(isTokenAllowed[address(token)], TokenNotAllowed());
 
         unchecked {
             giftId = nextGiftId++;
         }
 
-        getGift[giftId] = Gift({
-            recipient: recipient,
-            amount: amount,
-            redeemed: false
-        });
+        getGift[giftId] = Gift({token: address(token), recipient: recipient, amount: amount, redeemed: false});
 
-        emit GiftCreated(giftId, msg.sender, recipient, amount);
+        emit GiftCreated(giftId, address(token), msg.sender, recipient, amount);
 
-        SafeTransferLib.safeTransferFrom(
-            address(token),
-            msg.sender,
-            address(this),
-            amount
-        );
+        SafeTransferLib.safeTransferFrom(address(token), msg.sender, address(this), amount);
     }
 
     /// @notice Redeem a gifted token
@@ -163,20 +151,34 @@ contract WorldGiftManager is Ownable {
 
         require(!gift.redeemed, AlreadyRedeemed());
         require(gift.recipient != address(0), GiftNotFound());
-        require(
-            addressBook.addressVerifiedUntil(gift.recipient) >= block.timestamp,
-            NotVerified()
-        );
+        require(addressBook.addressVerifiedUntil(gift.recipient) >= block.timestamp, NotVerified());
 
         gift.redeemed = true;
 
         emit GiftRedeemed(giftId, gift.recipient, gift.amount);
 
-        SafeTransferLib.safeTransferFrom(
-            address(token),
-            address(this),
-            gift.recipient,
-            gift.amount
-        );
+        SafeTransferLib.safeTransferFrom(gift.token, address(this), gift.recipient, gift.amount);
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////
+    ///                               CONFIG LOGIC                             ///
+    //////////////////////////////////////////////////////////////////////////////
+
+    /// @notice Set whether an ERC20 token is allowed for gifting
+    /// @param token The address of the ERC20 token
+    /// @param allowed Whether the token is allowed
+    function setTokenAllowed(address token, bool allowed) public onlyOwner {
+        isTokenAllowed[token] = allowed;
+
+        emit TokenAllowlistUpdated(token, allowed);
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////
+    ///                              INTERNAL LOGIC                            ///
+    //////////////////////////////////////////////////////////////////////////////
+
+    function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
+        name = "WorldGiftManager";
+        version = "1.0";
     }
 }

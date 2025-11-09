@@ -3,6 +3,9 @@ src = "src"
 out = "out"
 libs = ["lib"]
 via-ir = true
+optimizer = true
+gas_reports = ["*"]
+ignored_error_codes = [2519]
 
-[lint]
-exclude_lints = ["screaming-snake-case-immutable"]
+[fmt]
+number_underscore = "thousands"

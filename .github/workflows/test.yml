@@ -18,8 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          persist-credentials: false
           submodules: recursive
+          persist-credentials: false
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1

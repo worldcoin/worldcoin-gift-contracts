@@ -3,7 +3,8 @@ pragma solidity ^0.8.13;
 
 import {Script} from "forge-std/Script.sol";
 import {Config} from "forge-std/Config.sol";
-import {WorldGiftManager, IERC20, IAddressBook} from "../src/WorldGiftManager.sol";
+import {WorldGiftManager} from "../src/WorldGiftManager.sol";
+import {IAddressBook} from "../src/interfaces/IAddressBook.sol";
 
 contract WorldGiftManagerScript is Script, Config {
     WorldGiftManager public giftManager;
@@ -13,15 +14,11 @@ contract WorldGiftManagerScript is Script, Config {
     function run() public {
         _loadConfig("./deployments.toml", true);
 
-        address token = config.get("token").toAddress();
         address addressBook = config.get("addressBook").toAddress();
 
         vm.startBroadcast();
 
-        giftManager = new WorldGiftManager(
-            IERC20(token),
-            IAddressBook(addressBook)
-        );
+        giftManager = new WorldGiftManager(IAddressBook(addressBook));
 
         vm.stopBroadcast();
     }
