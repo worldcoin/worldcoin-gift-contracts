@@ -133,7 +133,7 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @param amount The amount of tokens to gift
     /// @custom:throws InvalidAmount if the amount is zero
     /// @custom:throws TokenNotAllowed if the token is not allowed for gifting
-    /// @custom:throws InvalidRecipient if the recipient is the sender or zero address
+    /// @custom:throws InvalidRecipient if the recipient is the zero address
     /// @return giftId The ID of the created gift
     function gift(IERC20 token, address recipient, uint256 amount) external returns (uint256) {
         return _gift(token, msg.sender, recipient, amount);
@@ -150,7 +150,7 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @custom:throws InvalidSignature if the signature is invalid
     /// @custom:throws InvalidNonce if the nonce has already been used
     /// @custom:throws TokenNotAllowed if the token is not allowed for gifting
-    /// @custom:throws InvalidRecipient if the recipient is the sender or zero address
+    /// @custom:throws InvalidRecipient if the recipient is the zero address
     /// @return giftId The ID of the created gift
     function giftWithSig(
         IERC20 token,
@@ -201,7 +201,7 @@ contract WorldGiftManager is Ownable, EIP712 {
 
         emit GiftRedeemed(giftId, gift.recipient, gift.amount);
 
-        SafeTransferLib.safeTransferFrom(gift.token, address(this), gift.recipient, gift.amount);
+        SafeTransferLib.safeTransfer(gift.token, gift.recipient, gift.amount);
     }
 
     /// @dev The EIP-712 domain separator
@@ -234,7 +234,7 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @param amount The amount of tokens to gift
     /// @custom:throws InvalidAmount if the amount is zero
     /// @custom:throws TokenNotAllowed if the token is not allowed for gifting
-    /// @custom:throws InvalidRecipient if the recipient is the sender or zero address
+    /// @custom:throws InvalidRecipient if the recipient is the zero address
     /// @return giftId The ID of the created gift
     function _gift(IERC20 token, address from, address to, uint256 amount) internal returns (uint256 giftId) {
         require(amount > 0, InvalidAmount());

@@ -155,9 +155,9 @@ contract WorldGiftManagerTest is Test {
     }
 
     function testCannotGiftWithInvalidSignature(uint256 amount, address recipient, uint256 nonce) public {
-        vm.assume(recipient != address(0));
         vm.assume(nonce != 1234); // used for mismatched nonce below
         vm.assume(amount > 0 && amount <= 100 ether);
+        vm.assume(recipient != address(0) && recipient != address(0x1234)); // used for mismatched recipient below
 
         // Invalid signature: signed by different user
         bytes memory invalidSignature = _generateGiftSignature(user2Sig, address(token), recipient, amount, nonce);
@@ -206,6 +206,85 @@ contract WorldGiftManagerTest is Test {
         // Reusing the same nonce should fail
         vm.expectRevert(WorldGiftManager.InvalidNonce.selector);
         giftManager.giftWithSig(token, user1, recipient, amount, nonce, signature);
+    }
+
+    function testCanRedeemGift(uint256 amount) public {
+        vm.assume(amount > 0 && amount <= 100 ether);
+
+        addressBook.setVerification(user1, block.timestamp + 1 days);
+
+        uint256 giftId = giftManager.gift(token, user1, amount);
+
+        vm.expectEmit(true, true, true, true);
+        emit WorldGiftManager.GiftRedeemed(giftId, user1, amount);
+
+        giftManager.redeem(giftId);
+
+        (,,, bool redeemed) = giftManager.getGift(giftId);
+        assertEq(redeemed, true);
+
+        assertEq(token.balanceOf(user1), amount);
+        assertEq(token.balanceOf(address(giftManager)), 0);
+    }
+
+    function testCanRedeemGiftCreatedWithSig(uint256 amount) public {
+        vm.assume(amount > 0 && amount <= 100 ether);
+
+        addressBook.setVerification(user2, block.timestamp + 1 days);
+
+        vm.startPrank(user1);
+        token.mint(user1, amount);
+        token.approve(address(giftManager), amount);
+        vm.stopPrank();
+
+        bytes memory signature = _generateGiftSignature(user1Sig, address(token), user2, amount, 1);
+        uint256 giftId = giftManager.giftWithSig(token, user1, user2, amount, 1, signature);
+
+        vm.expectEmit(true, true, true, true);
+        emit WorldGiftManager.GiftRedeemed(giftId, user2, amount);
+
+        giftManager.redeem(giftId);
+
+        (,,, bool redeemed) = giftManager.getGift(giftId);
+        assertEq(redeemed, true);
+
+        assertEq(token.balanceOf(user2), amount);
+        assertEq(token.balanceOf(address(giftManager)), 0);
+    }
+
+    function testCannotRedeemGiftTwice(uint256 amount) public {
+        vm.assume(amount > 0 && amount <= 100 ether);
+
+        addressBook.setVerification(user1, block.timestamp + 1 days);
+
+        uint256 giftId = giftManager.gift(token, user1, amount);
+
+        giftManager.redeem(giftId);
+
+        vm.expectRevert(WorldGiftManager.AlreadyRedeemed.selector);
+        giftManager.redeem(giftId);
+    }
+
+    function testCannotRedeemGiftIfUnverified(uint256 amount) public {
+        vm.assume(amount > 0 && amount <= 100 ether);
+
+        uint256 giftId = giftManager.gift(token, user1, amount);
+
+        vm.prank(user1);
+        vm.expectRevert(WorldGiftManager.NotVerified.selector);
+        giftManager.redeem(giftId);
+
+        addressBook.setVerification(user1, block.timestamp + 1 days);
+        vm.warp(block.timestamp + 2 days); // expired verification
+
+        vm.prank(user1);
+        vm.expectRevert(WorldGiftManager.NotVerified.selector);
+        giftManager.redeem(giftId);
+    }
+
+    function testCannotRedeemNonexistentGift() public {
+        vm.expectRevert(WorldGiftManager.GiftNotFound.selector);
+        giftManager.redeem(999);
     }
 
     function testOnlyAdminCanSetTokenAllowed(address caller) public {
