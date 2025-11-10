@@ -40,6 +40,9 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @notice Thrown when trying to send a gift with an invalid signature
     error InvalidSignature();
 
+    /// @notice Thrown when trying to redeem a gift meant for another user
+    error NotRecipient();
+
     ///////////////////////////////////////////////////////////////////////////////
     ///                                  EVENTS                                ///
     //////////////////////////////////////////////////////////////////////////////
@@ -186,6 +189,7 @@ contract WorldGiftManager is Ownable, EIP712 {
 
         require(!gift.redeemed, AlreadyRedeemed());
         require(gift.recipient != address(0), GiftNotFound());
+        require(gift.recipient == msg.sender, NotRecipient());
         require(addressBook.addressVerifiedUntil(gift.recipient) >= block.timestamp, NotVerified());
 
         gift.redeemed = true;

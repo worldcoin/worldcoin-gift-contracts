@@ -228,6 +228,7 @@ contract WorldGiftManagerTest is Test {
         vm.expectEmit(true, true, true, true);
         emit WorldGiftManager.GiftRedeemed(giftId, user1, amount);
 
+        vm.prank(user1);
         giftManager.redeem(giftId);
 
         (,,, bool redeemed) = giftManager.getGift(giftId);
@@ -254,6 +255,7 @@ contract WorldGiftManagerTest is Test {
         vm.expectEmit(true, true, true, true);
         emit WorldGiftManager.GiftRedeemed(giftId, user2, amount);
 
+        vm.prank(user2);
         giftManager.redeem(giftId);
 
         (,,, bool redeemed) = giftManager.getGift(giftId);
@@ -270,9 +272,24 @@ contract WorldGiftManagerTest is Test {
 
         uint256 giftId = giftManager.gift(token, user1, amount);
 
+        vm.prank(user1);
         giftManager.redeem(giftId);
 
         vm.expectRevert(WorldGiftManager.AlreadyRedeemed.selector);
+        vm.prank(user1);
+        giftManager.redeem(giftId);
+    }
+
+    function testCannotRedeemGiftForAnotherUser(uint256 amount) public {
+        vm.assume(amount > 0 && amount <= 100 ether);
+
+        addressBook.setVerification(user1, block.timestamp + 1 days);
+        addressBook.setVerification(user2, block.timestamp + 1 days);
+
+        uint256 giftId = giftManager.gift(token, user1, amount);
+
+        vm.prank(user2);
+        vm.expectRevert(WorldGiftManager.NotRecipient.selector);
         giftManager.redeem(giftId);
     }
 
