@@ -37,9 +37,6 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @notice Thrown when trying to send a gift with an unallowed token
     error TokenNotAllowed();
 
-    /// @notice Thrown when trying to send a gift with an invalid nonce
-    error InvalidNonce();
-
     /// @notice Thrown when trying to send a gift with an invalid signature
     error InvalidSignature();
 
@@ -105,7 +102,7 @@ contract WorldGiftManager is Ownable, EIP712 {
     mapping(address => bool) public isTokenAllowed;
 
     /// @notice Whether a withdrawal nonce has been used
-    mapping(uint256 => bool) public isNonceConsumed;
+    mapping(address => uint256) public nextNonceForUser;
 
     ///////////////////////////////////////////////////////////////////////////////
     ///                               CONSTRUCTOR                              ///
@@ -144,24 +141,16 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @param sender The address of the gift sender
     /// @param recipient The address of the gift recipient
     /// @param amount The amount of tokens to gift
-    /// @param nonce A unique nonce for this gift
     /// @param signature The sender's signature over the gift parameters
     /// @custom:throws InvalidAmount if the amount is zero
     /// @custom:throws InvalidSignature if the signature is invalid
-    /// @custom:throws InvalidNonce if the nonce has already been used
     /// @custom:throws TokenNotAllowed if the token is not allowed for gifting
     /// @custom:throws InvalidRecipient if the recipient is the zero address
     /// @return giftId The ID of the created gift
-    function giftWithSig(
-        IERC20 token,
-        address sender,
-        address recipient,
-        uint256 amount,
-        uint256 nonce,
-        bytes calldata signature
-    ) external returns (uint256) {
-        require(!isNonceConsumed[nonce], InvalidNonce());
-
+    function giftWithSig(IERC20 token, address sender, address recipient, uint256 amount, bytes calldata signature)
+        external
+        returns (uint256)
+    {
         bool isSigValid = SignatureCheckerLib.isValidSignatureNow(
             sender,
             _hashTypedData(
@@ -171,7 +160,7 @@ contract WorldGiftManager is Ownable, EIP712 {
                         address(token),
                         recipient,
                         amount,
-                        nonce
+                        nextNonceForUser[sender]
                     )
                 )
             ),
@@ -180,7 +169,9 @@ contract WorldGiftManager is Ownable, EIP712 {
 
         require(isSigValid, InvalidSignature());
 
-        isNonceConsumed[nonce] = true;
+        unchecked {
+            nextNonceForUser[sender]++;
+        }
 
         return _gift(token, sender, recipient, amount);
     }
