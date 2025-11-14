@@ -4,7 +4,6 @@ pragma solidity ^0.8.13;
 import {EIP712} from "solady/utils/EIP712.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {IAddressBook} from "./interfaces/IAddressBook.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 
@@ -19,11 +18,11 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @notice Thrown when the contract is misconfigured
     error InvalidConfiguration();
 
-    /// @notice Thrown when an unverified recipient attempts to redeem a gift
-    error NotVerified();
-
-    /// @notice Thrown when trying to redeem a non-existent gift
+    /// @notice Thrown when trying to redeem or cancel a non-existent gift
     error GiftNotFound();
+
+    /// @notice Thrown when trying to redeem or cancel a cancelled gift
+    error GiftHasBeenCancelled();
 
     /// @notice Thrown when trying to redeem a gift that has already been redeemed
     error AlreadyRedeemed();
@@ -48,8 +47,7 @@ contract WorldGiftManager is Ownable, EIP712 {
     //////////////////////////////////////////////////////////////////////////////
 
     /// @notice Emitted when the contract is initialized
-    /// @param addressBook The address of the address book contract
-    event WorldGiftManagerInitialized(IAddressBook indexed addressBook);
+    event WorldGiftManagerInitialized();
 
     /// @notice Emitted when a gift is created
     /// @param giftId The ID of the created gift
@@ -67,6 +65,10 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @param amount The amount of tokens redeemed
     event GiftRedeemed(uint256 indexed giftId, address indexed recipient, uint256 amount);
 
+    /// @notice Emitted when a gift is cancelled
+    /// @param giftId The ID of the cancelled gift
+    event GiftCancelled(uint256 indexed giftId);
+
     /// @notice Emitted whenever a token allowlist entry is updated
     /// @param token The ERC20 token whose status changed
     /// @param allowed Whether the token is now allowed
@@ -77,23 +79,30 @@ contract WorldGiftManager is Ownable, EIP712 {
     //////////////////////////////////////////////////////////////////////////////
 
     /// @notice Represents a gift of tokens
+    /// @param sender The address of the gift sender
     /// @param recipient The address of the gift recipient
     /// @param token The address of the ERC20 token being gifted
     /// @param amount The amount of tokens gifted
+    /// @param createdAt The timestamp when the gift was created
     /// @param redeemed Whether the gift has been redeemed
+    /// @param cancelled Whether the gift has been cancelled
     struct Gift {
+        address sender;
         address recipient;
         address token;
         uint256 amount;
+        uint256 createdAt;
         bool redeemed;
+        bool cancelled;
     }
 
     ///////////////////////////////////////////////////////////////////////////////
     ///                              CONFIG STORAGE                            ///
     //////////////////////////////////////////////////////////////////////////////
 
-    /// @notice The address book contract that will be used to check verification status
-    IAddressBook public addressBook;
+    /// @notice The duration after which anyone can send a gift back to the sender
+    /// @dev Note that the sender can always cancel the gift at any time before redemption.
+    uint256 public constant GIFT_CANCELABLE_AFTER = 7 days;
 
     /// @notice The next gift ID to be assigned
     uint256 private nextGiftId = 1;
@@ -112,15 +121,10 @@ contract WorldGiftManager is Ownable, EIP712 {
     //////////////////////////////////////////////////////////////////////////////
 
     /// @notice Create a new WorldGiftManager contract
-    /// @param _addressBook The AddressBook contract for verification checks
-    constructor(IAddressBook _addressBook) {
-        require(address(_addressBook) != address(0), InvalidConfiguration());
-
-        addressBook = _addressBook;
-
+    constructor() {
         _initializeOwner(msg.sender);
 
-        emit WorldGiftManagerInitialized(addressBook);
+        emit WorldGiftManagerInitialized();
     }
 
     ///////////////////////////////////////////////////////////////////////////////
@@ -182,21 +186,35 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @notice Redeem a gifted token
     /// @param giftId The ID of the gift to redeem
     /// @custom:throws GiftNotFound if the gift does not exist
-    /// @custom:throws NotVerified if the recipient is not verified
     /// @custom:throws AlreadyRedeemed if the gift has already been redeemed
     function redeem(uint256 giftId) external {
         Gift storage gift = getGift[giftId];
 
         require(!gift.redeemed, AlreadyRedeemed());
+        require(!gift.cancelled, GiftHasBeenCancelled());
         require(gift.recipient != address(0), GiftNotFound());
         require(gift.recipient == msg.sender, NotRecipient());
-        require(addressBook.addressVerifiedUntil(gift.recipient) >= block.timestamp, NotVerified());
 
         gift.redeemed = true;
 
         emit GiftRedeemed(giftId, gift.recipient, gift.amount);
 
         SafeTransferLib.safeTransfer(gift.token, gift.recipient, gift.amount);
+    }
+
+    function cancel(uint256 giftId) external {
+        Gift storage gift = getGift[giftId];
+
+        require(!gift.redeemed, AlreadyRedeemed());
+        require(!gift.cancelled, GiftHasBeenCancelled());
+        require(gift.recipient != address(0), GiftNotFound());
+        require(gift.sender == msg.sender || block.timestamp >= gift.createdAt + GIFT_CANCELABLE_AFTER, Unauthorized());
+
+        gift.cancelled = true;
+
+        emit GiftCancelled(giftId);
+
+        SafeTransferLib.safeTransfer(gift.token, gift.sender, gift.amount);
     }
 
     /// @dev The EIP-712 domain separator
@@ -240,7 +258,15 @@ contract WorldGiftManager is Ownable, EIP712 {
             giftId = nextGiftId++;
         }
 
-        getGift[giftId] = Gift({token: address(token), recipient: to, amount: amount, redeemed: false});
+        getGift[giftId] = Gift({
+            sender: from,
+            recipient: to,
+            token: address(token),
+            amount: amount,
+            createdAt: block.timestamp,
+            redeemed: false,
+            cancelled: false
+        });
 
         emit GiftCreated(giftId, address(token), from, to, amount);
 

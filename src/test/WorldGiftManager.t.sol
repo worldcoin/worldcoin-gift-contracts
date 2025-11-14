@@ -6,14 +6,11 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {MockToken} from "./mocks/MockToken.sol";
 import {IERC20} from "../interfaces/IERC20.sol";
 import {WorldGiftManager} from "../WorldGiftManager.sol";
-import {IAddressBook} from "../interfaces/IAddressBook.sol";
-import {MockAddressBook} from "./mocks/MockAddressBook.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 contract WorldGiftManagerTest is Test {
     MockToken public token;
     MockToken public secondToken;
-    MockAddressBook public addressBook;
     WorldGiftManager public giftManager;
 
     address user1;
@@ -24,10 +21,9 @@ contract WorldGiftManagerTest is Test {
     function setUp() public {
         token = new MockToken();
         secondToken = new MockToken();
-        addressBook = new MockAddressBook();
         (user1, user1Sig) = makeAddrAndKey("User 1");
         (user2, user2Sig) = makeAddrAndKey("User 2");
-        giftManager = new WorldGiftManager(addressBook);
+        giftManager = new WorldGiftManager();
 
         token.mint(address(this), 100 ether);
         secondToken.mint(address(this), 100 ether);
@@ -39,21 +35,16 @@ contract WorldGiftManagerTest is Test {
 
         vm.label(address(token), "Mock Token");
         vm.label(address(this), "Test Contract");
-        vm.label(address(addressBook), "Mock Address Book");
         vm.label(address(secondToken), "Second Mock Token");
         vm.label(address(giftManager), "World Gift Manager");
     }
 
-    function testConstructorVerifiesArguments() public {
-        // address book address cannot be zero
-        vm.expectRevert(WorldGiftManager.InvalidConfiguration.selector);
-        new WorldGiftManager(IAddressBook(address(0x0)));
-
+    function testConstructorEmitsEvent() public {
         // constructor emits an event
         vm.expectEmit(true, true, true, true);
-        emit WorldGiftManager.WorldGiftManagerInitialized(addressBook);
+        emit WorldGiftManager.WorldGiftManagerInitialized();
 
-        WorldGiftManager newGiftManager = new WorldGiftManager(addressBook);
+        WorldGiftManager newGiftManager = new WorldGiftManager();
 
         assertEq(newGiftManager.owner(), address(this));
     }
@@ -68,11 +59,22 @@ contract WorldGiftManagerTest is Test {
         uint256 giftId = giftManager.gift(token, recipient, amount);
         assertEq(giftId, 1);
 
-        (address giftRecipient, address storedToken, uint256 giftAmount, bool redeemed) = giftManager.getGift(giftId);
+        (
+            address sender,
+            address giftRecipient,
+            address storedToken,
+            uint256 giftAmount,
+            uint256 createdAt,
+            bool redeemed,
+            bool cancelled
+        ) = giftManager.getGift(giftId);
 
         assertEq(giftAmount, amount);
         assertEq(redeemed, false);
+        assertEq(cancelled, false);
+        assertEq(sender, address(this));
         assertEq(giftRecipient, recipient);
+        assertEq(createdAt, block.timestamp);
         assertEq(storedToken, address(token));
 
         assertEq(token.balanceOf(address(this)), 100 ether - amount);
@@ -98,11 +100,22 @@ contract WorldGiftManagerTest is Test {
         assertEq(giftId, 1);
         assertEq(giftManager.nextNonceForUser(user1), 1);
 
-        (address giftRecipient, address storedToken, uint256 giftAmount, bool redeemed) = giftManager.getGift(giftId);
+        (
+            address sender,
+            address giftRecipient,
+            address storedToken,
+            uint256 giftAmount,
+            uint256 createdAt,
+            bool redeemed,
+            bool cancelled
+        ) = giftManager.getGift(giftId);
 
-        assertEq(giftAmount, amount);
         assertEq(redeemed, false);
+        assertEq(cancelled, false);
+        assertEq(sender, user1);
+        assertEq(giftAmount, amount);
         assertEq(giftRecipient, recipient);
+        assertEq(createdAt, block.timestamp);
         assertEq(storedToken, address(token));
 
         assertEq(token.balanceOf(user1), 100 ether - amount);
@@ -221,8 +234,6 @@ contract WorldGiftManagerTest is Test {
     function testCanRedeemGift(uint256 amount) public {
         vm.assume(amount > 0 && amount <= 100 ether);
 
-        addressBook.setVerification(user1, block.timestamp + 1 days);
-
         uint256 giftId = giftManager.gift(token, user1, amount);
 
         vm.expectEmit(true, true, true, true);
@@ -231,7 +242,7 @@ contract WorldGiftManagerTest is Test {
         vm.prank(user1);
         giftManager.redeem(giftId);
 
-        (,,, bool redeemed) = giftManager.getGift(giftId);
+        (,,,,, bool redeemed,) = giftManager.getGift(giftId);
         assertEq(redeemed, true);
 
         assertEq(token.balanceOf(user1), amount);
@@ -240,8 +251,6 @@ contract WorldGiftManagerTest is Test {
 
     function testCanRedeemGiftCreatedWithSig(uint256 amount) public {
         vm.assume(amount > 0 && amount <= 100 ether);
-
-        addressBook.setVerification(user2, block.timestamp + 1 days);
 
         vm.startPrank(user1);
         token.mint(user1, amount);
@@ -258,17 +267,28 @@ contract WorldGiftManagerTest is Test {
         vm.prank(user2);
         giftManager.redeem(giftId);
 
-        (,,, bool redeemed) = giftManager.getGift(giftId);
+        (,,,,, bool redeemed,) = giftManager.getGift(giftId);
         assertEq(redeemed, true);
 
         assertEq(token.balanceOf(user2), amount);
         assertEq(token.balanceOf(address(giftManager)), 0);
     }
 
+    function testCannotRedeemCancelledGift(uint256 amount, address recipient) public {
+        vm.assume(amount > 0 && amount <= 100 ether);
+        vm.assume(recipient != address(0) && recipient != address(this));
+
+        uint256 giftId = giftManager.gift(token, recipient, amount);
+
+        giftManager.cancel(giftId);
+
+        vm.prank(user1);
+        vm.expectRevert(WorldGiftManager.GiftHasBeenCancelled.selector);
+        giftManager.redeem(giftId);
+    }
+
     function testCannotRedeemGiftTwice(uint256 amount) public {
         vm.assume(amount > 0 && amount <= 100 ether);
-
-        addressBook.setVerification(user1, block.timestamp + 1 days);
 
         uint256 giftId = giftManager.gift(token, user1, amount);
 
@@ -283,9 +303,6 @@ contract WorldGiftManagerTest is Test {
     function testCannotRedeemGiftForAnotherUser(uint256 amount) public {
         vm.assume(amount > 0 && amount <= 100 ether);
 
-        addressBook.setVerification(user1, block.timestamp + 1 days);
-        addressBook.setVerification(user2, block.timestamp + 1 days);
-
         uint256 giftId = giftManager.gift(token, user1, amount);
 
         vm.prank(user2);
@@ -293,26 +310,88 @@ contract WorldGiftManagerTest is Test {
         giftManager.redeem(giftId);
     }
 
-    function testCannotRedeemGiftIfUnverified(uint256 amount) public {
-        vm.assume(amount > 0 && amount <= 100 ether);
-
-        uint256 giftId = giftManager.gift(token, user1, amount);
-
-        vm.prank(user1);
-        vm.expectRevert(WorldGiftManager.NotVerified.selector);
-        giftManager.redeem(giftId);
-
-        addressBook.setVerification(user1, block.timestamp + 1 days);
-        vm.warp(block.timestamp + 2 days); // expired verification
-
-        vm.prank(user1);
-        vm.expectRevert(WorldGiftManager.NotVerified.selector);
-        giftManager.redeem(giftId);
-    }
-
     function testCannotRedeemNonexistentGift() public {
         vm.expectRevert(WorldGiftManager.GiftNotFound.selector);
         giftManager.redeem(999);
+    }
+
+    function testCanCancelGift(uint256 amount, address recipient) public {
+        vm.assume(amount > 0 && amount <= 100 ether);
+        vm.assume(recipient != address(0) && recipient != address(this));
+
+        uint256 giftId = giftManager.gift(token, recipient, amount);
+
+        vm.expectEmit(true, true, true, true);
+        emit WorldGiftManager.GiftCancelled(giftId);
+
+        giftManager.cancel(giftId);
+
+        (,,,,, bool redeemed, bool cancelled) = giftManager.getGift(giftId);
+        assertEq(redeemed, false);
+        assertEq(cancelled, true);
+
+        assertEq(token.balanceOf(address(this)), 100 ether);
+        assertEq(token.balanceOf(address(giftManager)), 0);
+    }
+
+    function testCannotCancelGiftAfterRedeemed(uint256 amount, address recipient) public {
+        vm.assume(amount > 0 && amount <= 100 ether);
+        vm.assume(recipient != address(0) && recipient != address(this));
+
+        uint256 giftId = giftManager.gift(token, recipient, amount);
+
+        vm.prank(recipient);
+        giftManager.redeem(giftId);
+
+        vm.expectRevert(WorldGiftManager.AlreadyRedeemed.selector);
+        giftManager.cancel(giftId);
+    }
+
+    function testCannotCancelAlreadyCancelledGift(uint256 amount, address recipient) public {
+        vm.assume(amount > 0 && amount <= 100 ether);
+        vm.assume(recipient != address(0) && recipient != address(this));
+
+        uint256 giftId = giftManager.gift(token, recipient, amount);
+
+        giftManager.cancel(giftId);
+
+        vm.expectRevert(WorldGiftManager.GiftHasBeenCancelled.selector);
+        giftManager.cancel(giftId);
+    }
+
+    function testCannotCancelNonexistentGift() public {
+        vm.expectRevert(WorldGiftManager.GiftNotFound.selector);
+        giftManager.cancel(999);
+    }
+
+    function testCannotCancelSomeoneElsesGiftBeforeCancelablePeriod(uint256 amount, address recipient) public {
+        vm.assume(amount > 0 && amount <= 100 ether);
+        vm.assume(recipient != address(0) && recipient != address(this));
+
+        uint256 giftId = giftManager.gift(token, recipient, amount);
+
+        vm.prank(user1);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        giftManager.cancel(giftId);
+    }
+
+    function testCanCancelSomeoneElsesGiftAfterCancelablePeriod(uint256 amount, address recipient) public {
+        vm.assume(amount > 0 && amount <= 100 ether);
+        vm.assume(recipient != address(0) && recipient != address(this));
+
+        uint256 giftId = giftManager.gift(token, recipient, amount);
+
+        vm.warp(block.timestamp + giftManager.GIFT_CANCELABLE_AFTER() + 1);
+
+        vm.prank(user1);
+        giftManager.cancel(giftId);
+
+        (,,,,, bool redeemed, bool cancelled) = giftManager.getGift(giftId);
+        assertEq(redeemed, false);
+        assertEq(cancelled, true);
+
+        assertEq(token.balanceOf(address(this)), 100 ether);
+        assertEq(token.balanceOf(address(giftManager)), 0);
     }
 
     function testOnlyAdminCanSetTokenAllowed(address caller) public {
