@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
 import {EIP712} from "solady/utils/EIP712.sol";
@@ -270,7 +270,7 @@ contract WorldGiftManager is Ownable, EIP712 {
 
         emit GiftCreated(giftId, address(token), from, to, amount);
 
-        SafeTransferLib.safeTransferFrom(address(token), from, address(this), amount);
+        SafeTransferLib.safeTransferFrom2(address(token), from, address(this), amount);
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
