@@ -6,6 +6,9 @@ via-ir = true
 optimizer = true
 gas_reports = ["*"]
 
+[lint]
+exclude_lints = ["screaming-snake-case-immutable"]
+
 
 [fmt]
 number_underscore = "thousands"

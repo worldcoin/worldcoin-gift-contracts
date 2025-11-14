@@ -8,7 +8,6 @@ import {MockToken} from "./mocks/MockToken.sol";
 import {IAddressBook} from "../interfaces/IAddressBook.sol";
 import {MockAddressBook} from "./mocks/MockAddressBook.sol";
 import {WorldCampaignManager} from "../WorldCampaignManager.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 contract WorldCampaignManagerTest is Test {
     MockToken public token;

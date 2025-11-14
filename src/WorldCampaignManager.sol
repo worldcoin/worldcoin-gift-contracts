@@ -24,12 +24,19 @@ contract WorldCampaignManager is Ownable {
     /// @notice Thrown when a campaign has ended
     error CampaignEnded();
 
+    /// @notice Thrown when a participant has already participated in a campaign
     error AlreadyParticipated();
+
+    /// @notice Thrown when a user tries to sponsor themselves
     error CannotSponsorSelf();
 
+    /// @notice Thrown when an address is not verified
     error NotVerified();
 
+    /// @notice Thrown when a recipient has not been sponsored
     error NotSponsored();
+
+    /// @notice Thrown when a recipient has already claimed their reward
     error AlreadyClaimed();
 
     ///////////////////////////////////////////////////////////////////////////////
@@ -59,6 +66,13 @@ contract WorldCampaignManager is Ownable {
     ///                            TYPE DECLARATIONS                            ///
     //////////////////////////////////////////////////////////////////////////////
 
+    /// @notice Represents a sponsorship campaign
+    /// @param token The ERC20 token used for rewards
+    /// @param fundedFrom The address from which rewards will be funded
+    /// @param endsAt The timestamp when the campaign ends
+    /// @param lowerBound The minimum reward amount
+    /// @param upperBound The maximum reward amount
+    /// @param randomnessSeed A seed used for randomness in reward calculation
     struct Campaign {
         address token;
         address fundedFrom;
@@ -72,6 +86,7 @@ contract WorldCampaignManager is Ownable {
     ///                              CONFIG STORAGE                            ///
     //////////////////////////////////////////////////////////////////////////////
 
+    /// @notice The address book contract that will be used to check verification status
     IAddressBook public immutable addressBook;
 
     /// @notice The next campaign ID to be assigned
@@ -94,6 +109,8 @@ contract WorldCampaignManager is Ownable {
     //////////////////////////////////////////////////////////////////////////////
 
     /// @notice Create a new WorldCampaignManager contract
+    /// @param _addressBook The address book contract that will be used to check verification status
+    /// @custom:throws InvalidConfiguration Thrown when the address book address is zero
     constructor(IAddressBook _addressBook) {
         require(address(_addressBook) != address(0), InvalidConfiguration());
 
@@ -108,6 +125,15 @@ contract WorldCampaignManager is Ownable {
     ///                               MAIN LOGIC                                ///
     //////////////////////////////////////////////////////////////////////////////
 
+    /// @notice Sponsor a recipient in a campaign
+    /// @param campaignId The ID of the campaign
+    /// @param recipient The address of the recipient to be sponsored
+    /// @custom:throws CannotSponsorSelf Thrown when a user tries to sponsor themselves
+    /// @custom:throws InvalidConfiguration Thrown when the recipient address is zero
+    /// @custom:throws CampaignNotFound Thrown when the campaign does not exist
+    /// @custom:throws CampaignEnded Thrown when the campaign has already ended
+    /// @custom:throws AlreadyParticipated Thrown when the recipient has already been sponsored
+    /// @custom:throws NotVerified Thrown when either the sponsor or recipient is not verified
     function sponsor(uint256 campaignId, address recipient) external {
         Campaign memory campaign = getCampaign[campaignId];
 
@@ -127,7 +153,14 @@ contract WorldCampaignManager is Ownable {
         emit Sponsored(campaignId, msg.sender, recipient);
     }
 
-    function claim(uint256 campaignId) external {
+    /// @notice Claim a sponsorship reward in a campaign
+    /// @param campaignId The ID of the campaign
+    /// @return rewardAmount The amount of the reward claimed
+    /// @custom:throws CampaignNotFound Thrown when the campaign does not exist
+    /// @custom:throws CampaignEnded Thrown when the campaign has already ended
+    /// @custom:throws NotSponsored Thrown when the recipient has not been sponsored
+    /// @custom:throws AlreadyClaimed Thrown when the recipient has already claimed their reward
+    function claim(uint256 campaignId) external returns (uint256 rewardAmount) {
         Campaign memory campaign = getCampaign[campaignId];
 
         require(campaign.token != address(0), CampaignNotFound());
@@ -140,7 +173,7 @@ contract WorldCampaignManager is Ownable {
         uint256 range = campaign.upperBound - campaign.lowerBound;
         uint256 randomness =
             uint256(EfficientHashLib.hash(abi.encodePacked(block.prevrandao, campaign.randomnessSeed, msg.sender)));
-        uint256 rewardAmount = campaign.lowerBound + (randomness % range);
+        rewardAmount = campaign.lowerBound + (randomness % range);
 
         emit Claimed(campaignId, msg.sender, rewardAmount);
 
@@ -151,6 +184,15 @@ contract WorldCampaignManager is Ownable {
     ///                               CONFIG LOGIC                             ///
     //////////////////////////////////////////////////////////////////////////////
 
+    /// @notice Create a new sponsorship campaign
+    /// @param token The ERC20 token used for rewards
+    /// @param fundsOrigin The address from which rewards will be funded
+    /// @param endTimestamp The timestamp when the campaign ends
+    /// @param lowerBound The minimum reward amount
+    /// @param upperBound The maximum reward amount
+    /// @param seed A seed used for randomness in reward calculation
+    /// @return campaignId The ID of the created campaign
+    /// @custom:throws InvalidConfiguration Thrown when the configuration is invalid
     function createCampaign(
         IERC20 token,
         address fundsOrigin,
@@ -179,8 +221,4 @@ contract WorldCampaignManager is Ownable {
 
         emit CampaignCreated(campaignId);
     }
-
-    ///////////////////////////////////////////////////////////////////////////////
-    ///                              INTERNAL LOGIC                            ///
-    //////////////////////////////////////////////////////////////////////////////
 }

@@ -202,6 +202,12 @@ contract WorldGiftManager is Ownable, EIP712 {
         SafeTransferLib.safeTransfer(gift.token, gift.recipient, gift.amount);
     }
 
+    /// @notice Cancel a token gift
+    /// @param giftId The ID of the gift to cancel
+    /// @custom:throws GiftNotFound if the gift does not exist
+    /// @custom:throws AlreadyRedeemed if the gift has already been redeemed
+    /// @custom:throws GiftHasBeenCancelled if the gift has already been cancelled
+    /// @custom:throws Unauthorized if the caller is not the sender and the cancelation period has not elapsed
     function cancel(uint256 giftId) external {
         Gift storage gift = getGift[giftId];
 
@@ -273,6 +279,9 @@ contract WorldGiftManager is Ownable, EIP712 {
         SafeTransferLib.safeTransferFrom2(address(token), from, address(this), amount);
     }
 
+    /// @dev The EIP-712 domain name and version
+    /// @return name The domain name
+    /// @return version The domain version
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
         name = "WorldGiftManager";
         version = "1.0";
