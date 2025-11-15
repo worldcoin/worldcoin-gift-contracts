@@ -57,17 +57,19 @@ contract WorldCampaignManagerTest is Test {
             address tokenAddress,
             address fundsOrigin,
             uint256 endTime,
+            bool wasEndedEarly,
             uint256 lowerBound,
             uint256 upperBound,
             uint256 randomnessSeed
         ) = campaignManager.getCampaign(campaignId);
 
-        assertEq(tokenAddress, address(token));
-        assertEq(fundsOrigin, address(this));
-        assertEq(endTime, block.timestamp + 10 days);
+        assertEq(wasEndedEarly, false);
+        assertEq(randomnessSeed, _seed);
         assertEq(lowerBound, _lowerBound);
         assertEq(upperBound, _upperBound);
-        assertEq(randomnessSeed, _seed);
+        assertEq(fundsOrigin, address(this));
+        assertEq(tokenAddress, address(token));
+        assertEq(endTime, block.timestamp + 10 days);
     }
 
     function testCampaignCreationValidatesParameters() public {
@@ -98,14 +100,19 @@ contract WorldCampaignManagerTest is Test {
         uint256 campaignId =
             campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
+        assertTrue(campaignManager.canSponsor(campaignId, user1, user2));
+
         vm.prank(user1);
         vm.expectEmit(true, true, true, true);
         emit WorldCampaignManager.Sponsored(campaignId, user1, user2);
 
         campaignManager.sponsor(campaignId, user2);
 
+        assertFalse(campaignManager.canSponsor(campaignId, user1, user2));
         assertEq(campaignManager.getSponsoredRecipient(campaignId, user1), user2);
-        assertTrue(campaignManager.hasBeenSponsored(campaignId, user2));
+        assertEq(
+            uint8(campaignManager.getClaimStatus(campaignId, user2)), uint8(WorldCampaignManager.ClaimStatus.CanClaim)
+        );
     }
 
     function testCanOnlySponsorOnce(address randomUser) public {
@@ -118,8 +125,12 @@ contract WorldCampaignManagerTest is Test {
         uint256 campaignId =
             campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
+        assertTrue(campaignManager.canSponsor(campaignId, user1, user2));
+
         vm.prank(user1);
         campaignManager.sponsor(campaignId, user2);
+
+        assertFalse(campaignManager.canSponsor(campaignId, user1, user2));
 
         vm.prank(user1);
         vm.expectRevert(WorldCampaignManager.AlreadyParticipated.selector);
@@ -133,9 +144,13 @@ contract WorldCampaignManagerTest is Test {
         uint256 campaignId =
             campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
+        assertFalse(campaignManager.canSponsor(campaignId, user1, user2));
+
         vm.prank(user1);
         vm.expectRevert(WorldCampaignManager.NotVerified.selector);
         campaignManager.sponsor(campaignId, user2);
+
+        assertFalse(campaignManager.canSponsor(campaignId, user2, user1));
 
         vm.prank(user2);
         vm.expectRevert(WorldCampaignManager.NotVerified.selector);
@@ -145,6 +160,8 @@ contract WorldCampaignManagerTest is Test {
     function testSponsoringFailsWhenCampaignDoesNotExist() public {
         addressBook.setVerification(user1, block.timestamp + 1000);
         addressBook.setVerification(user2, block.timestamp + 1000);
+
+        assertFalse(campaignManager.canSponsor(999, user1, user2));
 
         vm.prank(user1);
         vm.expectRevert(WorldCampaignManager.CampaignNotFound.selector);
@@ -158,19 +175,23 @@ contract WorldCampaignManagerTest is Test {
         uint256 campaignId =
             campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
+        assertFalse(campaignManager.canSponsor(campaignId, user1, address(0)));
+
         vm.prank(user1);
         vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector);
         campaignManager.sponsor(campaignId, address(0));
     }
 
     function testCannotSponsorAfterCampaignEnds() public {
-        addressBook.setVerification(user1, block.timestamp + 1000);
-        addressBook.setVerification(user2, block.timestamp + 1000);
+        addressBook.setVerification(user1, block.timestamp + 10 days);
+        addressBook.setVerification(user2, block.timestamp + 10 days);
 
         uint256 campaignId =
             campaignManager.createCampaign(token, address(this), block.timestamp + 1 days, 1 ether, 10 ether, 100);
 
         vm.warp(block.timestamp + 2 days);
+
+        assertFalse(campaignManager.canSponsor(campaignId, user1, user2));
 
         vm.prank(user1);
         vm.expectRevert(WorldCampaignManager.CampaignEnded.selector);
@@ -182,6 +203,8 @@ contract WorldCampaignManagerTest is Test {
 
         uint256 campaignId =
             campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+
+        assertFalse(campaignManager.canSponsor(campaignId, user1, user1));
 
         vm.prank(user1);
         vm.expectRevert(WorldCampaignManager.CannotSponsorSelf.selector);
@@ -200,6 +223,9 @@ contract WorldCampaignManagerTest is Test {
 
         vm.prank(user1);
         campaignManager.sponsor(campaignId, someUser);
+
+        assertFalse(campaignManager.canSponsor(campaignId, user1, someUser));
+        assertFalse(campaignManager.canSponsor(campaignId, user2, someUser));
 
         vm.prank(user2);
         vm.expectRevert(WorldCampaignManager.AlreadyParticipated.selector);
@@ -222,6 +248,8 @@ contract WorldCampaignManagerTest is Test {
         vm.prank(randomUser);
         campaignManager.claim(campaignId);
 
+        assertFalse(campaignManager.canSponsor(campaignId, user1, randomUser));
+
         vm.prank(user2);
         vm.expectRevert(WorldCampaignManager.AlreadyParticipated.selector);
         campaignManager.sponsor(campaignId, randomUser);
@@ -239,13 +267,16 @@ contract WorldCampaignManagerTest is Test {
 
         vm.prank(user2);
         vm.expectEmit(true, true, true, true);
-        emit WorldCampaignManager.Claimed(campaignId, user2, 9_698_902_817_827_313_037);
+        emit WorldCampaignManager.Claimed(campaignId, user2, 4_888_519_300_100_138_601);
 
         campaignManager.claim(campaignId);
 
-        assertTrue(campaignManager.hasClaimedSponsorshipReward(campaignId, user2));
-        assertEq(token.balanceOf(user2), 9_698_902_817_827_313_037);
-        assertEq(token.balanceOf(address(this)), 100 ether - 9_698_902_817_827_313_037);
+        assertEq(token.balanceOf(user2), 4_888_519_300_100_138_601);
+        assertEq(
+            uint8(campaignManager.getClaimStatus(campaignId, user2)),
+            uint8(WorldCampaignManager.ClaimStatus.AlreadyClaimed)
+        );
+        assertEq(token.balanceOf(address(this)), 100 ether - 4_888_519_300_100_138_601);
     }
 
     function testClaimRandomness(uint256 seed, uint256 lowerBound, uint256 upperBound) public {
@@ -271,6 +302,24 @@ contract WorldCampaignManagerTest is Test {
         uint256 rewardAmount = token.balanceOf(user2);
 
         assertTrue(rewardAmount >= lowerBound && rewardAmount < upperBound);
+    }
+
+    function testCampaignWithExactAmountRewards() public {
+        addressBook.setVerification(user1, block.timestamp + 1000);
+        addressBook.setVerification(user2, block.timestamp + 1000);
+
+        uint256 campaignId =
+            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 5 ether, 5 ether, 42);
+
+        vm.prank(user1);
+        campaignManager.sponsor(campaignId, user2);
+
+        vm.prank(user2);
+        campaignManager.claim(campaignId);
+
+        uint256 rewardAmount = token.balanceOf(user2);
+
+        assertEq(rewardAmount, 5 ether);
     }
 
     function testCannotClaimNonExistentCampaign() public {
@@ -319,7 +368,85 @@ contract WorldCampaignManagerTest is Test {
         campaignManager.claim(campaignId);
 
         vm.prank(user2);
-        vm.expectRevert(WorldCampaignManager.AlreadyClaimed.selector);
+        vm.expectRevert(WorldCampaignManager.NotSponsored.selector);
         campaignManager.claim(campaignId);
+    }
+
+    function testCanEndCampaignEarly() public {
+        uint256 campaignId =
+            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+
+        campaignManager.endCampaignEarly(campaignId);
+
+        (,,, bool wasEndedEarly,,,) = campaignManager.getCampaign(campaignId);
+
+        assertTrue(wasEndedEarly);
+    }
+
+    function testOnlyOwnerCanEndCampaignEarly() public {
+        uint256 campaignId =
+            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+
+        vm.prank(user1);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        campaignManager.endCampaignEarly(campaignId);
+    }
+
+    function testCannotEndNonExistentCampaignEarly() public {
+        vm.expectRevert(WorldCampaignManager.CampaignNotFound.selector);
+        campaignManager.endCampaignEarly(999);
+    }
+
+    function testCannotEndAlreadyEndedCampaignEarly() public {
+        uint256 campaignId =
+            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+
+        campaignManager.endCampaignEarly(campaignId);
+
+        vm.expectRevert(WorldCampaignManager.CampaignEnded.selector);
+        campaignManager.endCampaignEarly(campaignId);
+
+        uint256 secondCampaignId =
+            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+
+        vm.warp(block.timestamp + 11 days);
+
+        vm.expectRevert(WorldCampaignManager.CampaignEnded.selector);
+        campaignManager.endCampaignEarly(secondCampaignId);
+    }
+
+    function testCannotSponsorOnEndedEarlyCampaign() public {
+        addressBook.setVerification(user1, block.timestamp + 100 days);
+        addressBook.setVerification(user2, block.timestamp + 100 days);
+
+        uint256 campaignId =
+            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+
+        campaignManager.endCampaignEarly(campaignId);
+
+        vm.prank(user1);
+        vm.expectRevert(WorldCampaignManager.CampaignEnded.selector);
+        campaignManager.sponsor(campaignId, user2);
+    }
+
+    function testCanStillClaimOnEndedEarlyCampaign() public {
+        addressBook.setVerification(user1, block.timestamp + 100 days);
+        addressBook.setVerification(user2, block.timestamp + 100 days);
+
+        uint256 campaignId =
+            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+
+        vm.prank(user1);
+        campaignManager.sponsor(campaignId, user2);
+
+        campaignManager.endCampaignEarly(campaignId);
+
+        vm.prank(user2);
+        campaignManager.claim(campaignId);
+
+        assertEq(
+            uint8(campaignManager.getClaimStatus(campaignId, user2)),
+            uint8(WorldCampaignManager.ClaimStatus.AlreadyClaimed)
+        );
     }
 }

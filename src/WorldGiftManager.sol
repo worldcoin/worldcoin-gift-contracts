@@ -61,9 +61,10 @@ contract WorldGiftManager is Ownable, EIP712 {
 
     /// @notice Emitted when a gift is redeemed
     /// @param giftId The ID of the redeemed gift
+    /// @param token The address of the ERC20 token being redeemed
     /// @param recipient The address of the gift recipient
     /// @param amount The amount of tokens redeemed
-    event GiftRedeemed(uint256 indexed giftId, address indexed recipient, uint256 amount);
+    event GiftRedeemed(uint256 indexed giftId, address indexed token, address indexed recipient, uint256 amount);
 
     /// @notice Emitted when a gift is cancelled
     /// @param giftId The ID of the cancelled gift
@@ -197,7 +198,7 @@ contract WorldGiftManager is Ownable, EIP712 {
 
         gift.redeemed = true;
 
-        emit GiftRedeemed(giftId, gift.recipient, gift.amount);
+        emit GiftRedeemed(giftId, gift.token, gift.recipient, gift.amount);
 
         SafeTransferLib.safeTransfer(gift.token, gift.recipient, gift.amount);
     }

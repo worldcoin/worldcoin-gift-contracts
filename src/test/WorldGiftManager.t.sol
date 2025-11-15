@@ -237,7 +237,7 @@ contract WorldGiftManagerTest is Test {
         uint256 giftId = giftManager.gift(token, user1, amount);
 
         vm.expectEmit(true, true, true, true);
-        emit WorldGiftManager.GiftRedeemed(giftId, user1, amount);
+        emit WorldGiftManager.GiftRedeemed(giftId, address(token), user1, amount);
 
         vm.prank(user1);
         giftManager.redeem(giftId);
@@ -262,7 +262,7 @@ contract WorldGiftManagerTest is Test {
         uint256 giftId = giftManager.giftWithSig(token, user1, user2, amount, signature);
 
         vm.expectEmit(true, true, true, true);
-        emit WorldGiftManager.GiftRedeemed(giftId, user2, amount);
+        emit WorldGiftManager.GiftRedeemed(giftId, address(token), user2, amount);
 
         vm.prank(user2);
         giftManager.redeem(giftId);

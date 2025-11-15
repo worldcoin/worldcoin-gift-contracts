@@ -36,9 +36,6 @@ contract WorldCampaignManager is Ownable {
     /// @notice Thrown when a recipient has not been sponsored
     error NotSponsored();
 
-    /// @notice Thrown when a recipient has already claimed their reward
-    error AlreadyClaimed();
-
     ///////////////////////////////////////////////////////////////////////////////
     ///                                  EVENTS                                ///
     //////////////////////////////////////////////////////////////////////////////
@@ -70,6 +67,7 @@ contract WorldCampaignManager is Ownable {
     /// @param token The ERC20 token used for rewards
     /// @param fundedFrom The address from which rewards will be funded
     /// @param endsAt The timestamp when the campaign ends
+    /// @param wasEndedEarly Whether the campaign was ended early
     /// @param lowerBound The minimum reward amount
     /// @param upperBound The maximum reward amount
     /// @param randomnessSeed A seed used for randomness in reward calculation
@@ -77,9 +75,16 @@ contract WorldCampaignManager is Ownable {
         address token;
         address fundedFrom;
         uint256 endsAt;
+        bool wasEndedEarly;
         uint256 lowerBound;
         uint256 upperBound;
         uint256 randomnessSeed;
+    }
+
+    enum ClaimStatus {
+        NotSponsored,
+        CanClaim,
+        AlreadyClaimed
     }
 
     ///////////////////////////////////////////////////////////////////////////////
@@ -98,11 +103,8 @@ contract WorldCampaignManager is Ownable {
     /// @notice Stores the sponsored recipient for a given campaign and sponsor
     mapping(uint256 => mapping(address => address)) public getSponsoredRecipient;
 
-    /// @notice Tracks if a recipient has already been sponsored for a given campaign
-    mapping(uint256 => mapping(address => bool)) public hasBeenSponsored;
-
-    /// @notice Tracks if a recipient has already claimed a sponsorship reward for a given campaign
-    mapping(uint256 => mapping(address => bool)) public hasClaimedSponsorshipReward;
+    /// @notice Tracks whether a recipient has been sponsored in a given campaign
+    mapping(uint256 => mapping(address => ClaimStatus)) public getClaimStatus;
 
     ///////////////////////////////////////////////////////////////////////////////
     ///                               CONSTRUCTOR                              ///
@@ -140,14 +142,13 @@ contract WorldCampaignManager is Ownable {
         require(recipient != msg.sender, CannotSponsorSelf());
         require(recipient != address(0), InvalidConfiguration());
         require(campaign.token != address(0), CampaignNotFound());
-        require(block.timestamp < campaign.endsAt, CampaignEnded());
-        require(!hasBeenSponsored[campaignId][recipient], AlreadyParticipated());
-        require(!hasClaimedSponsorshipReward[campaignId][recipient], AlreadyParticipated());
         require(addressBook.addressVerifiedUntil(recipient) >= block.timestamp, NotVerified());
+        require(block.timestamp < campaign.endsAt && !campaign.wasEndedEarly, CampaignEnded());
         require(addressBook.addressVerifiedUntil(msg.sender) >= block.timestamp, NotVerified());
         require(getSponsoredRecipient[campaignId][msg.sender] == address(0), AlreadyParticipated());
+        require(getClaimStatus[campaignId][recipient] == ClaimStatus.NotSponsored, AlreadyParticipated());
 
-        hasBeenSponsored[campaignId][recipient] = true;
+        getClaimStatus[campaignId][recipient] = ClaimStatus.CanClaim;
         getSponsoredRecipient[campaignId][msg.sender] = recipient;
 
         emit Sponsored(campaignId, msg.sender, recipient);
@@ -158,26 +159,48 @@ contract WorldCampaignManager is Ownable {
     /// @return rewardAmount The amount of the reward claimed
     /// @custom:throws CampaignNotFound Thrown when the campaign does not exist
     /// @custom:throws CampaignEnded Thrown when the campaign has already ended
-    /// @custom:throws NotSponsored Thrown when the recipient has not been sponsored
-    /// @custom:throws AlreadyClaimed Thrown when the recipient has already claimed their reward
+    /// @custom:throws NotSponsored Thrown when the recipient has not been sponsored or has already claimed their reward
     function claim(uint256 campaignId) external returns (uint256 rewardAmount) {
         Campaign memory campaign = getCampaign[campaignId];
 
         require(campaign.token != address(0), CampaignNotFound());
         require(block.timestamp < campaign.endsAt, CampaignEnded());
-        require(hasBeenSponsored[campaignId][msg.sender], NotSponsored());
-        require(!hasClaimedSponsorshipReward[campaignId][msg.sender], AlreadyClaimed());
+        require(getClaimStatus[campaignId][msg.sender] == ClaimStatus.CanClaim, NotSponsored());
 
-        hasClaimedSponsorshipReward[campaignId][msg.sender] = true;
+        getClaimStatus[campaignId][msg.sender] = ClaimStatus.AlreadyClaimed;
 
-        uint256 range = campaign.upperBound - campaign.lowerBound;
-        uint256 randomness =
-            uint256(EfficientHashLib.hash(abi.encodePacked(block.prevrandao, campaign.randomnessSeed, msg.sender)));
-        rewardAmount = campaign.lowerBound + (randomness % range);
+        if (campaign.lowerBound == campaign.upperBound) {
+            rewardAmount = campaign.lowerBound;
+        } else {
+            uint256 range = campaign.upperBound - campaign.lowerBound;
+            uint256 randomness = uint256(EfficientHashLib.hash(abi.encodePacked(campaign.randomnessSeed, msg.sender)));
+            rewardAmount = campaign.lowerBound + (randomness % range);
+        }
 
         emit Claimed(campaignId, msg.sender, rewardAmount);
 
         SafeTransferLib.safeTransferFrom(campaign.token, campaign.fundedFrom, msg.sender, rewardAmount);
+    }
+
+    /// @notice Check if a sponsor can sponsor a recipient in a campaign
+    /// @param campaignId The ID of the campaign
+    /// @param sponsor The address of the sponsor
+    /// @param recipient The address of the recipient to be sponsored
+    /// @return True if the sponsor can sponsor the recipient, false otherwise
+    function canSponsor(uint256 campaignId, address sponsor, address recipient) external view returns (bool) {
+        Campaign memory campaign = getCampaign[campaignId];
+
+        if (
+            recipient == sponsor || campaign.wasEndedEarly || recipient == address(0) || campaign.token == address(0)
+                || getClaimStatus[campaignId][recipient] != ClaimStatus.NotSponsored
+                || addressBook.addressVerifiedUntil(recipient) < block.timestamp || block.timestamp >= campaign.endsAt
+                || addressBook.addressVerifiedUntil(sponsor) < block.timestamp
+                || getSponsoredRecipient[campaignId][sponsor] != address(0)
+        ) {
+            return false;
+        }
+
+        return true;
     }
 
     ///////////////////////////////////////////////////////////////////////////////
@@ -201,7 +224,7 @@ contract WorldCampaignManager is Ownable {
         uint256 upperBound,
         uint256 seed
     ) external onlyOwner returns (uint256 campaignId) {
-        require(lowerBound < upperBound, InvalidConfiguration());
+        require(lowerBound <= upperBound, InvalidConfiguration());
         require(fundsOrigin != address(0), InvalidConfiguration());
         require(address(token) != address(0), InvalidConfiguration());
         require(endTimestamp > block.timestamp, InvalidConfiguration());
@@ -214,11 +237,26 @@ contract WorldCampaignManager is Ownable {
             token: address(token),
             fundedFrom: fundsOrigin,
             endsAt: endTimestamp,
+            wasEndedEarly: false,
             lowerBound: lowerBound,
             upperBound: upperBound,
             randomnessSeed: seed
         });
 
         emit CampaignCreated(campaignId);
+    }
+
+    /// @notice End a campaign early
+    /// @param campaignId The ID of the campaign to end early
+    /// @custom:throws CampaignNotFound Thrown when the campaign does not exist
+    /// @custom:throws CampaignEnded Thrown when the campaign has already ended
+    /// @dev Note that ending a campaign early does not prevent already sponsored recipients from claiming their rewards.
+    function endCampaignEarly(uint256 campaignId) external onlyOwner {
+        Campaign storage campaign = getCampaign[campaignId];
+
+        require(campaign.token != address(0), CampaignNotFound());
+        require(!campaign.wasEndedEarly && campaign.endsAt > block.timestamp, CampaignEnded());
+
+        campaign.wasEndedEarly = true;
     }
 }
