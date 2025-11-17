@@ -85,6 +85,9 @@ contract WorldCampaignManagerTest is Test {
 
         vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector); // Upper bound must be greater than lower bound
         campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 100, 50, 42);
+
+        vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector); // Funds must be approved
+        campaignManager.createCampaign(token, user1, block.timestamp + 10 days, 1, 100, 42);
     }
 
     function testOnlyOwnerCanCreateCampaign() public {

@@ -244,6 +244,8 @@ contract WorldCampaignManager is Ownable {
         });
 
         emit CampaignCreated(campaignId);
+
+        require(token.allowance(fundsOrigin, address(this)) > 0, InvalidConfiguration());
     }
 
     /// @notice End a campaign early
