@@ -159,13 +159,15 @@ contract WorldCampaignManager is Ownable {
     /// @return rewardAmount The amount of the reward claimed
     /// @custom:throws CampaignNotFound Thrown when the campaign does not exist
     /// @custom:throws CampaignEnded Thrown when the campaign has already ended
+    /// @custom:throws InvalidConfiguration Thrown when the provided sponsor did not sponsor the caller
     /// @custom:throws NotSponsored Thrown when the recipient has not been sponsored or has already claimed their reward
-    function claim(uint256 campaignId) external returns (uint256 rewardAmount) {
+    function claim(uint256 campaignId, address sponsor) external returns (uint256 rewardAmount) {
         Campaign memory campaign = getCampaign[campaignId];
 
         require(campaign.token != address(0), CampaignNotFound());
         require(block.timestamp < campaign.endsAt, CampaignEnded());
         require(getClaimStatus[campaignId][msg.sender] == ClaimStatus.CanClaim, NotSponsored());
+        require(getSponsoredRecipient[campaignId][sponsor] == msg.sender, InvalidConfiguration());
 
         getClaimStatus[campaignId][msg.sender] = ClaimStatus.AlreadyClaimed;
 
@@ -173,7 +175,8 @@ contract WorldCampaignManager is Ownable {
             rewardAmount = campaign.lowerBound;
         } else {
             uint256 range = campaign.upperBound - campaign.lowerBound;
-            uint256 randomness = uint256(EfficientHashLib.hash(abi.encodePacked(campaign.randomnessSeed, msg.sender)));
+            uint256 randomness =
+                uint256(EfficientHashLib.hash(abi.encodePacked(campaign.randomnessSeed, sponsor, msg.sender)));
             rewardAmount = campaign.lowerBound + (randomness % range);
         }
 
