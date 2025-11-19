@@ -21,6 +21,9 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @notice Thrown when trying to redeem or cancel a non-existent gift
     error GiftNotFound();
 
+    /// @notice Thrown when the gift id being created already exists
+    error GiftAlreadyExists();
+
     /// @notice Thrown when trying to redeem or cancel a cancelled gift
     error GiftHasBeenCancelled();
 
@@ -105,9 +108,6 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @dev Note that the sender can always cancel the gift at any time before redemption.
     uint256 public constant GIFT_CANCELABLE_AFTER = 7 days;
 
-    /// @notice The next gift ID to be assigned
-    uint256 private nextGiftId = 1;
-
     /// @notice A mapping of gift IDs to Gift structs
     mapping(uint256 => Gift) public getGift;
 
@@ -134,14 +134,15 @@ contract WorldGiftManager is Ownable, EIP712 {
 
     /// @notice Gift tokens to a recipient
     /// @param token The ERC20 token to gift
+    /// @param giftId The ID of the gift
     /// @param recipient The address of the gift recipient
     /// @param amount The amount of tokens to gift
     /// @custom:throws InvalidAmount if the amount is zero
+    /// @custom:throws GiftAlreadyExists if the gift ID already exists
     /// @custom:throws TokenNotAllowed if the token is not allowed for gifting
     /// @custom:throws InvalidRecipient if the recipient is the zero address
-    /// @return giftId The ID of the created gift
-    function gift(IERC20 token, address recipient, uint256 amount) external returns (uint256) {
-        return _gift(token, msg.sender, recipient, amount);
+    function gift(IERC20 token, uint256 giftId, address recipient, uint256 amount) external {
+        _gift(token, giftId, msg.sender, recipient, amount);
     }
 
     /// @notice Gift tokens to a recipient using a signed message
@@ -152,20 +153,25 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @param signature The sender's signature over the gift parameters
     /// @custom:throws InvalidAmount if the amount is zero
     /// @custom:throws InvalidSignature if the signature is invalid
+    /// @custom:throws GiftAlreadyExists if the gift ID already exists
     /// @custom:throws TokenNotAllowed if the token is not allowed for gifting
     /// @custom:throws InvalidRecipient if the recipient is the zero address
-    /// @return giftId The ID of the created gift
-    function giftWithSig(IERC20 token, address sender, address recipient, uint256 amount, bytes calldata signature)
-        external
-        returns (uint256)
-    {
+    function giftWithSig(
+        IERC20 token,
+        uint256 giftId,
+        address sender,
+        address recipient,
+        uint256 amount,
+        bytes calldata signature
+    ) external {
         bool isSigValid = SignatureCheckerLib.isValidSignatureNow(
             sender,
             _hashTypedData(
                 keccak256(
                     abi.encode(
-                        keccak256("Gift(address token,address recipient,uint256 amount,uint256 nonce)"),
+                        keccak256("Gift(address token,uint256 giftId,address recipient,uint256 amount,uint256 nonce)"),
                         address(token),
+                        giftId,
                         recipient,
                         amount,
                         nextNonceForUser[sender]
@@ -181,7 +187,7 @@ contract WorldGiftManager is Ownable, EIP712 {
             nextNonceForUser[sender]++;
         }
 
-        return _gift(token, sender, recipient, amount);
+        _gift(token, giftId, sender, recipient, amount);
     }
 
     /// @notice Redeem a gifted token
@@ -249,21 +255,20 @@ contract WorldGiftManager is Ownable, EIP712 {
 
     /// @dev Gift tokens to a recipient
     /// @param token The ERC20 token to gift
+    /// @param giftId The ID of the gift
     /// @param from The address of the gift sender
     /// @param to The address of the gift recipient
     /// @param amount The amount of tokens to gift
     /// @custom:throws InvalidAmount if the amount is zero
+    /// @custom:throws GiftAlreadyExists if the gift ID already exists
     /// @custom:throws TokenNotAllowed if the token is not allowed for gifting
     /// @custom:throws InvalidRecipient if the recipient is the zero address
-    /// @return giftId The ID of the created gift
-    function _gift(IERC20 token, address from, address to, uint256 amount) internal returns (uint256 giftId) {
+    /// @dev While accepting the `giftId` from the caller instead of auto-incrementing opens up the possibility of a DoS by front-running gift IDs, it is a requirement for the integration with World App.
+    function _gift(IERC20 token, uint256 giftId, address from, address to, uint256 amount) internal {
         require(amount > 0, InvalidAmount());
         require(to != address(0), InvalidRecipient());
         require(isTokenAllowed[address(token)], TokenNotAllowed());
-
-        unchecked {
-            giftId = nextGiftId++;
-        }
+        require(getGift[giftId].recipient == address(0), GiftAlreadyExists());
 
         getGift[giftId] = Gift({
             sender: from,
