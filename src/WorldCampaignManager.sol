@@ -24,6 +24,9 @@ contract WorldCampaignManager is Ownable {
     /// @notice Thrown when a campaign has ended
     error CampaignEnded();
 
+    /// @notice Thrown when trying to withdraw from a campaign that is still active
+    error CampaignActive();
+
     /// @notice Thrown when a participant has already participated in a campaign
     error AlreadyParticipated();
 
@@ -36,6 +39,9 @@ contract WorldCampaignManager is Ownable {
     /// @notice Thrown when a recipient has not been sponsored
     error NotSponsored();
 
+    /// @notice Thrown when there are insufficient funds to process a claim
+    error InsufficientFunds();
+
     ///////////////////////////////////////////////////////////////////////////////
     ///                                  EVENTS                                ///
     //////////////////////////////////////////////////////////////////////////////
@@ -46,6 +52,20 @@ contract WorldCampaignManager is Ownable {
     /// @notice Emitted when a new campaign is created
     /// @param campaignId The ID of the created campaign
     event CampaignCreated(uint256 indexed campaignId);
+
+    /// @notice Emitted when a campaign is funded
+    /// @param campaignId The ID of the campaign
+    /// @param amount The amount of funds added to the campaign
+    event CampaignFunded(uint256 indexed campaignId, uint256 amount);
+
+    /// @notice Emitted when a campaign ends early
+    /// @param campaignId The ID of the campaign
+    event CampaignEndedEarly(uint256 indexed campaignId);
+
+    /// @notice Emitted when excess funds are withdrawn from a campaign
+    /// @param campaignId The ID of the campaign
+    /// @param amount The amount of funds withdrawn
+    event ExcessFundsWithdrawn(uint256 indexed campaignId, uint256 amount);
 
     /// @notice Emitted when a sponsorship is made
     /// @param campaignId The ID of the campaign
@@ -65,7 +85,7 @@ contract WorldCampaignManager is Ownable {
 
     /// @notice Represents a sponsorship campaign
     /// @param token The ERC20 token used for rewards
-    /// @param fundedFrom The address from which rewards will be funded
+    /// @param funds The amount of funds allocated for the campaign
     /// @param endsAt The timestamp when the campaign ends
     /// @param wasEndedEarly Whether the campaign was ended early
     /// @param lowerBound The minimum reward amount
@@ -73,7 +93,7 @@ contract WorldCampaignManager is Ownable {
     /// @param randomnessSeed A seed used for randomness in reward calculation
     struct Campaign {
         address token;
-        address fundedFrom;
+        uint256 funds;
         uint256 endsAt;
         bool wasEndedEarly;
         uint256 lowerBound;
@@ -162,7 +182,7 @@ contract WorldCampaignManager is Ownable {
     /// @custom:throws InvalidConfiguration Thrown when the provided sponsor did not sponsor the caller
     /// @custom:throws NotSponsored Thrown when the recipient has not been sponsored or has already claimed their reward
     function claim(uint256 campaignId, address sponsor) external returns (uint256 rewardAmount) {
-        Campaign memory campaign = getCampaign[campaignId];
+        Campaign storage campaign = getCampaign[campaignId];
 
         require(campaign.token != address(0), CampaignNotFound());
         require(block.timestamp < campaign.endsAt, CampaignEnded());
@@ -180,9 +200,14 @@ contract WorldCampaignManager is Ownable {
             rewardAmount = campaign.lowerBound + (randomness % range);
         }
 
+        require(campaign.funds >= rewardAmount, InsufficientFunds());
+        unchecked {
+            campaign.funds -= rewardAmount;
+        }
+
         emit Claimed(campaignId, msg.sender, rewardAmount);
 
-        SafeTransferLib.safeTransferFrom(campaign.token, campaign.fundedFrom, msg.sender, rewardAmount);
+        SafeTransferLib.safeTransfer(campaign.token, msg.sender, rewardAmount);
     }
 
     /// @notice Check if a sponsor can sponsor a recipient in a campaign
@@ -212,7 +237,7 @@ contract WorldCampaignManager is Ownable {
 
     /// @notice Create a new sponsorship campaign
     /// @param token The ERC20 token used for rewards
-    /// @param fundsOrigin The address from which rewards will be funded
+    /// @param initialDeposit The initial deposit amount
     /// @param endTimestamp The timestamp when the campaign ends
     /// @param lowerBound The minimum reward amount
     /// @param upperBound The maximum reward amount
@@ -221,14 +246,14 @@ contract WorldCampaignManager is Ownable {
     /// @custom:throws InvalidConfiguration Thrown when the configuration is invalid
     function createCampaign(
         IERC20 token,
-        address fundsOrigin,
+        uint256 initialDeposit,
         uint256 endTimestamp,
         uint256 lowerBound,
         uint256 upperBound,
         uint256 seed
     ) external onlyOwner returns (uint256 campaignId) {
+        require(initialDeposit > 0, InvalidConfiguration());
         require(lowerBound <= upperBound, InvalidConfiguration());
-        require(fundsOrigin != address(0), InvalidConfiguration());
         require(address(token) != address(0), InvalidConfiguration());
         require(endTimestamp > block.timestamp, InvalidConfiguration());
 
@@ -238,7 +263,7 @@ contract WorldCampaignManager is Ownable {
 
         getCampaign[campaignId] = Campaign({
             token: address(token),
-            fundedFrom: fundsOrigin,
+            funds: initialDeposit,
             endsAt: endTimestamp,
             wasEndedEarly: false,
             lowerBound: lowerBound,
@@ -248,7 +273,44 @@ contract WorldCampaignManager is Ownable {
 
         emit CampaignCreated(campaignId);
 
-        require(token.allowance(fundsOrigin, address(this)) > 0, InvalidConfiguration());
+        SafeTransferLib.safeTransferFrom(address(token), msg.sender, address(this), initialDeposit);
+    }
+
+    /// @notice Fund an existing campaign
+    /// @param campaignId The ID of the campaign to fund
+    /// @param amount The amount of funds to add to the campaign
+    /// @custom:throws CampaignNotFound Thrown when the campaign does not exist
+    /// @custom:throws CampaignEnded Thrown when the campaign has already ended
+    /// @dev For simplicity, we allow any address to fund a campaign
+    function fundCampaign(uint256 campaignId, uint256 amount) external {
+        Campaign storage campaign = getCampaign[campaignId];
+
+        require(campaign.token != address(0), CampaignNotFound());
+        require(campaign.endsAt > block.timestamp, CampaignEnded());
+
+        unchecked {
+            campaign.funds += amount;
+        }
+        emit CampaignFunded(campaignId, amount);
+        SafeTransferLib.safeTransferFrom(campaign.token, msg.sender, address(this), amount);
+    }
+
+    /// @notice Withdraw unclaimed funds from a ended campaign
+    /// @param campaignId The ID of the campaign to withdraw from
+    /// @custom:throws CampaignNotFound Thrown when the campaign does not exist
+    /// @custom:throws CampaignEnded Thrown when the campaign has not yet ended
+    function withdrawUnclaimedFunds(uint256 campaignId) external onlyOwner {
+        Campaign storage campaign = getCampaign[campaignId];
+
+        require(campaign.token != address(0), CampaignNotFound());
+        require(block.timestamp > campaign.endsAt, CampaignActive());
+
+        uint256 unclaimedFunds = campaign.funds;
+        campaign.funds = 0;
+
+        emit ExcessFundsWithdrawn(campaignId, unclaimedFunds);
+
+        SafeTransferLib.safeTransfer(campaign.token, msg.sender, unclaimedFunds);
     }
 
     /// @notice End a campaign early
@@ -263,5 +325,7 @@ contract WorldCampaignManager is Ownable {
         require(!campaign.wasEndedEarly && campaign.endsAt > block.timestamp, CampaignEnded());
 
         campaign.wasEndedEarly = true;
+
+        emit CampaignEndedEarly(campaignId);
     }
 }

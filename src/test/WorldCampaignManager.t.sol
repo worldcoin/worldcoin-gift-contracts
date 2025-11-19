@@ -7,6 +7,7 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {MockToken} from "./mocks/MockToken.sol";
 import {IAddressBook} from "../interfaces/IAddressBook.sol";
 import {MockAddressBook} from "./mocks/MockAddressBook.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {WorldCampaignManager} from "../WorldCampaignManager.sol";
 
 contract WorldCampaignManagerTest is Test {
@@ -49,13 +50,12 @@ contract WorldCampaignManagerTest is Test {
         vm.expectEmit(true, true, true, true);
         emit WorldCampaignManager.CampaignCreated(1);
 
-        uint256 campaignId = campaignManager.createCampaign(
-            token, address(this), block.timestamp + 10 days, _lowerBound, _upperBound, _seed
-        );
+        uint256 campaignId =
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, _lowerBound, _upperBound, _seed);
 
         (
             address tokenAddress,
-            address fundsOrigin,
+            uint256 availableFunds,
             uint256 endTime,
             bool wasEndedEarly,
             uint256 lowerBound,
@@ -67,33 +67,112 @@ contract WorldCampaignManagerTest is Test {
         assertEq(randomnessSeed, _seed);
         assertEq(lowerBound, _lowerBound);
         assertEq(upperBound, _upperBound);
-        assertEq(fundsOrigin, address(this));
+        assertEq(availableFunds, 50 ether);
         assertEq(tokenAddress, address(token));
         assertEq(endTime, block.timestamp + 10 days);
+
+        assertEq(token.balanceOf(address(this)), 50 ether);
+        assertEq(token.balanceOf(address(campaignManager)), 50 ether);
     }
 
     function testCampaignCreationValidatesParameters() public {
         vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector); // Token address zero
-        campaignManager.createCampaign(IERC20(address(0)), address(this), block.timestamp + 10 days, 1, 100, 42);
-
-        vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector); // Funds origin address zero
-        campaignManager.createCampaign(token, address(0), block.timestamp + 10 days, 1, 100, 42);
+        campaignManager.createCampaign(IERC20(address(0)), 50 ether, block.timestamp + 10 days, 1, 100, 42);
 
         vm.warp(block.timestamp + 1 days);
         vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector); // End timestamp in the past
-        campaignManager.createCampaign(token, address(this), block.timestamp - 1 days, 1, 100, 42);
+        campaignManager.createCampaign(token, 50 ether, block.timestamp - 1 days, 1, 100, 42);
 
         vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector); // Upper bound must be greater than lower bound
-        campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 100, 50, 42);
+        campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 100, 50, 42);
 
-        vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector); // Funds must be approved
-        campaignManager.createCampaign(token, user1, block.timestamp + 10 days, 1, 100, 42);
+        vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector); // Amount must be greater than zero
+        campaignManager.createCampaign(token, 0, block.timestamp + 10 days, 1, 100, 42);
+
+        vm.expectRevert(SafeTransferLib.TransferFromFailed.selector); // Creator must have enough funds to fund initial deposit
+        campaignManager.createCampaign(token, 200 ether, block.timestamp + 10 days, 1, 100, 42);
+
+        token.approve(address(campaignManager), 0);
+        vm.expectRevert(SafeTransferLib.TransferFromFailed.selector); // Creator must have approved the contract to pull funds
+        campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1, 100, 42);
     }
 
     function testOnlyOwnerCanCreateCampaign() public {
         vm.prank(user1);
         vm.expectRevert(Ownable.Unauthorized.selector);
-        campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1, 100, 42);
+        campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1, 100, 42);
+    }
+
+    function testCanFundCampaign() public {
+        uint256 campaignId =
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
+
+        vm.expectEmit(true, true, true, true);
+        emit WorldCampaignManager.CampaignFunded(campaignId, 25 ether);
+
+        campaignManager.fundCampaign(campaignId, 25 ether);
+
+        (, uint256 availableFunds,,,,,) = campaignManager.getCampaign(campaignId);
+
+        assertEq(availableFunds, 75 ether);
+        assertEq(token.balanceOf(address(this)), 25 ether);
+        assertEq(token.balanceOf(address(campaignManager)), 75 ether);
+    }
+
+    function testCannotFundNonExistentCampaign() public {
+        vm.expectRevert(WorldCampaignManager.CampaignNotFound.selector);
+        campaignManager.fundCampaign(999, 10 ether);
+    }
+
+    function testCannotFundEndedCampaign() public {
+        uint256 campaignId =
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 1 days, 1 ether, 10 ether, 100);
+
+        vm.warp(block.timestamp + 2 days);
+
+        vm.expectRevert(WorldCampaignManager.CampaignEnded.selector);
+        campaignManager.fundCampaign(campaignId, 10 ether);
+    }
+
+    function testCanWithdrawUnclaimedFunds() public {
+        uint256 campaignId =
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 1 days, 1 ether, 10 ether, 100);
+
+        vm.warp(block.timestamp + 2 days);
+
+        vm.expectEmit(true, true, true, true);
+        emit WorldCampaignManager.ExcessFundsWithdrawn(campaignId, 50 ether);
+
+        campaignManager.withdrawUnclaimedFunds(campaignId);
+
+        assertEq(token.balanceOf(address(this)), 100 ether);
+        assertEq(token.balanceOf(address(campaignManager)), 0);
+    }
+
+    function testOnlyOwnerCanWithdrawUnclaimedFunds(address anyUser) public {
+        vm.assume(anyUser != address(this));
+
+        uint256 campaignId =
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 1 days, 1 ether, 10 ether, 100);
+
+        vm.warp(block.timestamp + 2 days);
+
+        vm.prank(anyUser);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        campaignManager.withdrawUnclaimedFunds(campaignId);
+    }
+
+    function testCannotWithdrawFromNonExistentCampaign() public {
+        vm.expectRevert(WorldCampaignManager.CampaignNotFound.selector);
+        campaignManager.withdrawUnclaimedFunds(999);
+    }
+
+    function testCannotWithdrawFromActiveCampaign() public {
+        uint256 campaignId =
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
+
+        vm.expectRevert(WorldCampaignManager.CampaignActive.selector);
+        campaignManager.withdrawUnclaimedFunds(campaignId);
     }
 
     function testCanSponsor() public {
@@ -101,7 +180,7 @@ contract WorldCampaignManagerTest is Test {
         addressBook.setVerification(user2, block.timestamp + 1000);
 
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         assertTrue(campaignManager.canSponsor(campaignId, user1, user2));
 
@@ -126,7 +205,7 @@ contract WorldCampaignManagerTest is Test {
         addressBook.setVerification(randomUser, block.timestamp + 1000);
 
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         assertTrue(campaignManager.canSponsor(campaignId, user1, user2));
 
@@ -145,7 +224,7 @@ contract WorldCampaignManagerTest is Test {
         // user2 is not verified
 
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         assertFalse(campaignManager.canSponsor(campaignId, user1, user2));
 
@@ -176,7 +255,7 @@ contract WorldCampaignManagerTest is Test {
         addressBook.setVerification(address(0), block.timestamp + 1000);
 
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         assertFalse(campaignManager.canSponsor(campaignId, user1, address(0)));
 
@@ -190,7 +269,7 @@ contract WorldCampaignManagerTest is Test {
         addressBook.setVerification(user2, block.timestamp + 10 days);
 
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 1 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 1 days, 1 ether, 10 ether, 100);
 
         vm.warp(block.timestamp + 2 days);
 
@@ -205,7 +284,7 @@ contract WorldCampaignManagerTest is Test {
         addressBook.setVerification(user1, block.timestamp + 1000);
 
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         assertFalse(campaignManager.canSponsor(campaignId, user1, user1));
 
@@ -222,7 +301,7 @@ contract WorldCampaignManagerTest is Test {
         addressBook.setVerification(someUser, block.timestamp + 100 days);
 
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         vm.prank(user1);
         campaignManager.sponsor(campaignId, someUser);
@@ -243,7 +322,7 @@ contract WorldCampaignManagerTest is Test {
         addressBook.setVerification(randomUser, block.timestamp + 100 days);
 
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         vm.prank(user1);
         campaignManager.sponsor(campaignId, randomUser);
@@ -263,7 +342,7 @@ contract WorldCampaignManagerTest is Test {
         addressBook.setVerification(user2, block.timestamp + 1000);
 
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         vm.prank(user1);
         campaignManager.sponsor(campaignId, user2);
@@ -274,12 +353,15 @@ contract WorldCampaignManagerTest is Test {
 
         campaignManager.claim(campaignId, user1);
 
+        (, uint256 availableFunds,,,,,) = campaignManager.getCampaign(campaignId);
+
+        assertEq(availableFunds, 50 ether - 6_130_755_916_212_758_706);
         assertEq(token.balanceOf(user2), 6_130_755_916_212_758_706);
         assertEq(
             uint8(campaignManager.getClaimStatus(campaignId, user2)),
             uint8(WorldCampaignManager.ClaimStatus.AlreadyClaimed)
         );
-        assertEq(token.balanceOf(address(this)), 100 ether - 6_130_755_916_212_758_706);
+        assertEq(token.balanceOf(address(campaignManager)), 50 ether - 6_130_755_916_212_758_706);
     }
 
     function testClaimRandomness(uint256 seed, uint256 lowerBound, uint256 upperBound) public {
@@ -292,9 +374,8 @@ contract WorldCampaignManagerTest is Test {
         addressBook.setVerification(user1, block.timestamp + 1000);
         addressBook.setVerification(user2, block.timestamp + 1000);
 
-        uint256 campaignId = campaignManager.createCampaign(
-            token, address(this), block.timestamp + 10 days, lowerBound, upperBound, seed
-        );
+        uint256 campaignId =
+            campaignManager.createCampaign(token, upperBound, block.timestamp + 10 days, lowerBound, upperBound, seed);
 
         vm.prank(user1);
         campaignManager.sponsor(campaignId, user2);
@@ -312,7 +393,7 @@ contract WorldCampaignManagerTest is Test {
         addressBook.setVerification(user2, block.timestamp + 1000);
 
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 5 ether, 5 ether, 42);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 5 ether, 5 ether, 42);
 
         vm.prank(user1);
         campaignManager.sponsor(campaignId, user2);
@@ -331,13 +412,28 @@ contract WorldCampaignManagerTest is Test {
         campaignManager.claim(999, anyAddress);
     }
 
+    function testCannotClaimIfInsufficientFunds() public {
+        addressBook.setVerification(user1, block.timestamp + 100 days);
+        addressBook.setVerification(user2, block.timestamp + 100 days);
+
+        uint256 campaignId =
+            campaignManager.createCampaign(token, 1 ether, block.timestamp + 10 days, 2 ether, 3 ether, 100);
+
+        vm.prank(user1);
+        campaignManager.sponsor(campaignId, user2);
+
+        vm.prank(user2);
+        vm.expectRevert(WorldCampaignManager.InsufficientFunds.selector);
+        campaignManager.claim(campaignId, user1);
+    }
+
     function testCannotClaimWithInvalidSponsor(address anyAddress) public {
         vm.assume(anyAddress != user1);
         addressBook.setVerification(user1, block.timestamp + 100 days);
         addressBook.setVerification(user2, block.timestamp + 100 days);
 
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         vm.prank(user1);
         campaignManager.sponsor(campaignId, user2);
@@ -349,7 +445,7 @@ contract WorldCampaignManagerTest is Test {
 
     function testCannotClaimIfNotSponsored(address anyAddress) public {
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         vm.prank(user1);
         vm.expectRevert(WorldCampaignManager.NotSponsored.selector);
@@ -361,7 +457,7 @@ contract WorldCampaignManagerTest is Test {
         addressBook.setVerification(user2, block.timestamp + 100 days);
 
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 1 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 1 days, 1 ether, 10 ether, 100);
 
         vm.prank(user1);
         campaignManager.sponsor(campaignId, user2);
@@ -378,7 +474,7 @@ contract WorldCampaignManagerTest is Test {
         addressBook.setVerification(user2, block.timestamp + 100 days);
 
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         vm.prank(user1);
         campaignManager.sponsor(campaignId, user2);
@@ -393,7 +489,7 @@ contract WorldCampaignManagerTest is Test {
 
     function testCanEndCampaignEarly() public {
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         campaignManager.endCampaignEarly(campaignId);
 
@@ -404,7 +500,7 @@ contract WorldCampaignManagerTest is Test {
 
     function testOnlyOwnerCanEndCampaignEarly() public {
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         vm.prank(user1);
         vm.expectRevert(Ownable.Unauthorized.selector);
@@ -418,7 +514,7 @@ contract WorldCampaignManagerTest is Test {
 
     function testCannotEndAlreadyEndedCampaignEarly() public {
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         campaignManager.endCampaignEarly(campaignId);
 
@@ -426,7 +522,7 @@ contract WorldCampaignManagerTest is Test {
         campaignManager.endCampaignEarly(campaignId);
 
         uint256 secondCampaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         vm.warp(block.timestamp + 11 days);
 
@@ -439,7 +535,7 @@ contract WorldCampaignManagerTest is Test {
         addressBook.setVerification(user2, block.timestamp + 100 days);
 
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         campaignManager.endCampaignEarly(campaignId);
 
@@ -453,7 +549,7 @@ contract WorldCampaignManagerTest is Test {
         addressBook.setVerification(user2, block.timestamp + 100 days);
 
         uint256 campaignId =
-            campaignManager.createCampaign(token, address(this), block.timestamp + 10 days, 1 ether, 10 ether, 100);
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
         vm.prank(user1);
         campaignManager.sponsor(campaignId, user2);
