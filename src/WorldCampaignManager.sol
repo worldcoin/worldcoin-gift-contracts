@@ -126,6 +126,9 @@ contract WorldCampaignManager is Ownable {
     /// @notice Stores the sponsored recipient for a given campaign and sponsor
     mapping(uint256 => mapping(address => address)) public getSponsoredRecipient;
 
+    /// @notice Stores the reverse mapping of recipient to sponsor for a given campaign
+    mapping(uint256 => mapping(address => address)) public getSponsor;
+
     /// @notice Tracks whether a recipient has been sponsored in a given campaign
     mapping(uint256 => mapping(address => ClaimStatus)) public getClaimStatus;
 
@@ -171,8 +174,9 @@ contract WorldCampaignManager is Ownable {
         require(getSponsoredRecipient[campaignId][msg.sender] == address(0), AlreadyParticipated());
         require(getClaimStatus[campaignId][recipient] == ClaimStatus.NotSponsored, AlreadyParticipated());
 
-        getClaimStatus[campaignId][recipient] = ClaimStatus.CanClaim;
+        getSponsor[campaignId][recipient] = msg.sender;
         getSponsoredRecipient[campaignId][msg.sender] = recipient;
+        getClaimStatus[campaignId][recipient] = ClaimStatus.CanClaim;
 
         emit Sponsored(campaignId, msg.sender, recipient);
     }
@@ -185,14 +189,14 @@ contract WorldCampaignManager is Ownable {
     /// @custom:throws HasNotSponsoredYet Thrown when the recipient has not sponsored anyone yet
     /// @custom:throws InvalidConfiguration Thrown when the provided sponsor did not sponsor the caller
     /// @custom:throws NotSponsored Thrown when the recipient has not been sponsored or has already claimed their reward
-    function claim(uint256 campaignId, address sponsor) external returns (uint256 rewardAmount) {
+    function claim(uint256 campaignId) external returns (uint256 rewardAmount) {
         Campaign storage campaign = getCampaign[campaignId];
+        address sponsor = getSponsor[campaignId][msg.sender];
 
         require(campaign.token != address(0), CampaignNotFound());
         require(block.timestamp < campaign.endsAt, CampaignEnded());
         require(getClaimStatus[campaignId][msg.sender] == ClaimStatus.CanClaim, NotSponsored());
         require(getSponsoredRecipient[campaignId][msg.sender] != address(0), HasNotSponsoredYet());
-        require(getSponsoredRecipient[campaignId][sponsor] == msg.sender, InvalidConfiguration());
 
         getClaimStatus[campaignId][msg.sender] = ClaimStatus.AlreadyClaimed;
 
