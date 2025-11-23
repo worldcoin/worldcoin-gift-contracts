@@ -175,14 +175,14 @@ contract WorldCampaignManagerTest is Test {
         campaignManager.withdrawUnclaimedFunds(campaignId);
     }
 
-    function testCanSponsor() public {
+    function testcanSponsorRecipient() public {
         addressBook.setVerification(user1, block.timestamp + 1000);
         addressBook.setVerification(user2, block.timestamp + 1000);
 
         uint256 campaignId =
             campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
-        assertTrue(campaignManager.canSponsor(campaignId, user1, user2));
+        assertTrue(campaignManager.canSponsorRecipient(campaignId, user1, user2));
 
         vm.prank(user1);
         vm.expectEmit(true, true, true, true);
@@ -191,7 +191,7 @@ contract WorldCampaignManagerTest is Test {
         campaignManager.sponsor(campaignId, user2);
 
         assertEq(campaignManager.getSponsor(campaignId, user2), user1);
-        assertFalse(campaignManager.canSponsor(campaignId, user1, user2));
+        assertFalse(campaignManager.canSponsorRecipient(campaignId, user1, user2));
         assertEq(campaignManager.getSponsoredRecipient(campaignId, user1), user2);
         assertEq(
             uint8(campaignManager.getClaimStatus(campaignId, user2)), uint8(WorldCampaignManager.ClaimStatus.CanClaim)
@@ -208,12 +208,12 @@ contract WorldCampaignManagerTest is Test {
         uint256 campaignId =
             campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
-        assertTrue(campaignManager.canSponsor(campaignId, user1, user2));
+        assertTrue(campaignManager.canSponsorRecipient(campaignId, user1, user2));
 
         vm.prank(user1);
         campaignManager.sponsor(campaignId, user2);
 
-        assertFalse(campaignManager.canSponsor(campaignId, user1, user2));
+        assertFalse(campaignManager.canSponsorRecipient(campaignId, user1, user2));
 
         vm.prank(user1);
         vm.expectRevert(WorldCampaignManager.AlreadyParticipated.selector);
@@ -227,13 +227,13 @@ contract WorldCampaignManagerTest is Test {
         uint256 campaignId =
             campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
-        assertFalse(campaignManager.canSponsor(campaignId, user1, user2));
+        assertFalse(campaignManager.canSponsorRecipient(campaignId, user1, user2));
 
         vm.prank(user1);
         vm.expectRevert(WorldCampaignManager.NotVerified.selector);
         campaignManager.sponsor(campaignId, user2);
 
-        assertFalse(campaignManager.canSponsor(campaignId, user2, user1));
+        assertFalse(campaignManager.canSponsorRecipient(campaignId, user2, user1));
 
         vm.prank(user2);
         vm.expectRevert(WorldCampaignManager.NotVerified.selector);
@@ -244,7 +244,7 @@ contract WorldCampaignManagerTest is Test {
         addressBook.setVerification(user1, block.timestamp + 1000);
         addressBook.setVerification(user2, block.timestamp + 1000);
 
-        assertFalse(campaignManager.canSponsor(999, user1, user2));
+        assertFalse(campaignManager.canSponsorRecipient(999, user1, user2));
 
         vm.prank(user1);
         vm.expectRevert(WorldCampaignManager.CampaignNotFound.selector);
@@ -258,7 +258,7 @@ contract WorldCampaignManagerTest is Test {
         uint256 campaignId =
             campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
-        assertFalse(campaignManager.canSponsor(campaignId, user1, address(0)));
+        assertFalse(campaignManager.canSponsorRecipient(campaignId, user1, address(0)));
 
         vm.prank(user1);
         vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector);
@@ -274,7 +274,7 @@ contract WorldCampaignManagerTest is Test {
 
         vm.warp(block.timestamp + 2 days);
 
-        assertFalse(campaignManager.canSponsor(campaignId, user1, user2));
+        assertFalse(campaignManager.canSponsorRecipient(campaignId, user1, user2));
 
         vm.prank(user1);
         vm.expectRevert(WorldCampaignManager.CampaignEnded.selector);
@@ -287,7 +287,7 @@ contract WorldCampaignManagerTest is Test {
         uint256 campaignId =
             campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
 
-        assertFalse(campaignManager.canSponsor(campaignId, user1, user1));
+        assertFalse(campaignManager.canSponsorRecipient(campaignId, user1, user1));
 
         vm.prank(user1);
         vm.expectRevert(WorldCampaignManager.CannotSponsorSelf.selector);
@@ -307,8 +307,8 @@ contract WorldCampaignManagerTest is Test {
         vm.prank(user1);
         campaignManager.sponsor(campaignId, someUser);
 
-        assertFalse(campaignManager.canSponsor(campaignId, user1, someUser));
-        assertFalse(campaignManager.canSponsor(campaignId, user2, someUser));
+        assertFalse(campaignManager.canSponsorRecipient(campaignId, user1, someUser));
+        assertFalse(campaignManager.canSponsorRecipient(campaignId, user2, someUser));
 
         vm.prank(user2);
         vm.expectRevert(WorldCampaignManager.AlreadyParticipated.selector);
@@ -334,7 +334,7 @@ contract WorldCampaignManagerTest is Test {
         vm.prank(randomUser);
         campaignManager.claim(campaignId);
 
-        assertFalse(campaignManager.canSponsor(campaignId, user1, randomUser));
+        assertFalse(campaignManager.canSponsorRecipient(campaignId, user1, randomUser));
 
         vm.prank(user2);
         vm.expectRevert(WorldCampaignManager.AlreadyParticipated.selector);

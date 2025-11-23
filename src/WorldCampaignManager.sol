@@ -74,13 +74,21 @@ contract WorldCampaignManager is Ownable {
     /// @param campaignId The ID of the campaign
     /// @param sponsor The address of the sponsor
     /// @param recipient The address of the recipient being sponsored
-    event Sponsored(uint256 indexed campaignId, address indexed sponsor, address indexed recipient);
+    event Sponsored(
+        uint256 indexed campaignId,
+        address indexed sponsor,
+        address indexed recipient
+    );
 
     /// @notice Emitted when a sponsorship reward is claimed
     /// @param campaignId The ID of the campaign
     /// @param recipient The address of the recipient claiming the reward
     /// @param rewardAmount The amount of the reward claimed
-    event Claimed(uint256 indexed campaignId, address indexed recipient, uint256 rewardAmount);
+    event Claimed(
+        uint256 indexed campaignId,
+        address indexed recipient,
+        uint256 rewardAmount
+    );
 
     ///////////////////////////////////////////////////////////////////////////////
     ///                            TYPE DECLARATIONS                            ///
@@ -124,7 +132,8 @@ contract WorldCampaignManager is Ownable {
     mapping(uint256 => Campaign) public getCampaign;
 
     /// @notice Stores the sponsored recipient for a given campaign and sponsor
-    mapping(uint256 => mapping(address => address)) public getSponsoredRecipient;
+    mapping(uint256 => mapping(address => address))
+        public getSponsoredRecipient;
 
     /// @notice Stores the reverse mapping of recipient to sponsor for a given campaign
     mapping(uint256 => mapping(address => address)) public getSponsor;
@@ -168,11 +177,26 @@ contract WorldCampaignManager is Ownable {
         require(recipient != msg.sender, CannotSponsorSelf());
         require(recipient != address(0), InvalidConfiguration());
         require(campaign.token != address(0), CampaignNotFound());
-        require(addressBook.addressVerifiedUntil(recipient) >= block.timestamp, NotVerified());
-        require(block.timestamp < campaign.endsAt && !campaign.wasEndedEarly, CampaignEnded());
-        require(addressBook.addressVerifiedUntil(msg.sender) >= block.timestamp, NotVerified());
-        require(getSponsoredRecipient[campaignId][msg.sender] == address(0), AlreadyParticipated());
-        require(getClaimStatus[campaignId][recipient] == ClaimStatus.NotSponsored, AlreadyParticipated());
+        require(
+            addressBook.addressVerifiedUntil(recipient) >= block.timestamp,
+            NotVerified()
+        );
+        require(
+            block.timestamp < campaign.endsAt && !campaign.wasEndedEarly,
+            CampaignEnded()
+        );
+        require(
+            addressBook.addressVerifiedUntil(msg.sender) >= block.timestamp,
+            NotVerified()
+        );
+        require(
+            getSponsoredRecipient[campaignId][msg.sender] == address(0),
+            AlreadyParticipated()
+        );
+        require(
+            getClaimStatus[campaignId][recipient] == ClaimStatus.NotSponsored,
+            AlreadyParticipated()
+        );
 
         getSponsor[campaignId][recipient] = msg.sender;
         getSponsoredRecipient[campaignId][msg.sender] = recipient;
@@ -195,8 +219,14 @@ contract WorldCampaignManager is Ownable {
 
         require(campaign.token != address(0), CampaignNotFound());
         require(block.timestamp < campaign.endsAt, CampaignEnded());
-        require(getClaimStatus[campaignId][msg.sender] == ClaimStatus.CanClaim, NotSponsored());
-        require(getSponsoredRecipient[campaignId][msg.sender] != address(0), HasNotSponsoredYet());
+        require(
+            getClaimStatus[campaignId][msg.sender] == ClaimStatus.CanClaim,
+            NotSponsored()
+        );
+        require(
+            getSponsoredRecipient[campaignId][msg.sender] != address(0),
+            HasNotSponsoredYet()
+        );
 
         getClaimStatus[campaignId][msg.sender] = ClaimStatus.AlreadyClaimed;
 
@@ -204,8 +234,15 @@ contract WorldCampaignManager is Ownable {
             rewardAmount = campaign.lowerBound;
         } else {
             uint256 range = campaign.upperBound - campaign.lowerBound;
-            uint256 randomness =
-                uint256(EfficientHashLib.hash(abi.encodePacked(campaign.randomnessSeed, sponsor, msg.sender)));
+            uint256 randomness = uint256(
+                EfficientHashLib.hash(
+                    abi.encodePacked(
+                        campaign.randomnessSeed,
+                        sponsor,
+                        msg.sender
+                    )
+                )
+            );
             rewardAmount = campaign.lowerBound + (randomness % range);
         }
 
@@ -224,15 +261,46 @@ contract WorldCampaignManager is Ownable {
     /// @param sponsor The address of the sponsor
     /// @param recipient The address of the recipient to be sponsored
     /// @return True if the sponsor can sponsor the recipient, false otherwise
-    function canSponsor(uint256 campaignId, address sponsor, address recipient) external view returns (bool) {
+    function canSponsorRecipient(
+        uint256 campaignId,
+        address sponsor,
+        address recipient
+    ) external view returns (bool) {
         Campaign memory campaign = getCampaign[campaignId];
 
         if (
-            recipient == sponsor || campaign.wasEndedEarly || recipient == address(0) || campaign.token == address(0)
-                || getClaimStatus[campaignId][recipient] != ClaimStatus.NotSponsored
-                || addressBook.addressVerifiedUntil(recipient) < block.timestamp || block.timestamp >= campaign.endsAt
-                || addressBook.addressVerifiedUntil(sponsor) < block.timestamp
-                || getSponsoredRecipient[campaignId][sponsor] != address(0)
+            recipient == sponsor ||
+            campaign.wasEndedEarly ||
+            recipient == address(0) ||
+            campaign.token == address(0) ||
+            getClaimStatus[campaignId][recipient] != ClaimStatus.NotSponsored ||
+            addressBook.addressVerifiedUntil(recipient) < block.timestamp ||
+            block.timestamp >= campaign.endsAt ||
+            addressBook.addressVerifiedUntil(sponsor) < block.timestamp ||
+            getSponsoredRecipient[campaignId][sponsor] != address(0)
+        ) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /// @notice Check if a sponsor is eligible to sponsor anyone in a campaign
+    /// @param campaignId The ID of the campaign
+    /// @param sponsor The address of the sponsor
+    /// @return True if the sponsor can sponsor someone, false otherwise
+    function canSponsor(
+        uint256 campaignId,
+        address sponsor
+    ) external view returns (bool) {
+        Campaign memory campaign = getCampaign[campaignId];
+
+        if (
+            campaign.wasEndedEarly ||
+            campaign.token == address(0) ||
+            block.timestamp >= campaign.endsAt ||
+            addressBook.addressVerifiedUntil(sponsor) < block.timestamp ||
+            getSponsoredRecipient[campaignId][sponsor] != address(0)
         ) {
             return false;
         }
@@ -282,7 +350,12 @@ contract WorldCampaignManager is Ownable {
 
         emit CampaignCreated(campaignId);
 
-        SafeTransferLib.safeTransferFrom(address(token), msg.sender, address(this), initialDeposit);
+        SafeTransferLib.safeTransferFrom(
+            address(token),
+            msg.sender,
+            address(this),
+            initialDeposit
+        );
     }
 
     /// @notice Fund an existing campaign
@@ -301,7 +374,12 @@ contract WorldCampaignManager is Ownable {
             campaign.funds += amount;
         }
         emit CampaignFunded(campaignId, amount);
-        SafeTransferLib.safeTransferFrom(campaign.token, msg.sender, address(this), amount);
+        SafeTransferLib.safeTransferFrom(
+            campaign.token,
+            msg.sender,
+            address(this),
+            amount
+        );
     }
 
     /// @notice Withdraw unclaimed funds from a ended campaign
@@ -319,7 +397,11 @@ contract WorldCampaignManager is Ownable {
 
         emit ExcessFundsWithdrawn(campaignId, unclaimedFunds);
 
-        SafeTransferLib.safeTransfer(campaign.token, msg.sender, unclaimedFunds);
+        SafeTransferLib.safeTransfer(
+            campaign.token,
+            msg.sender,
+            unclaimedFunds
+        );
     }
 
     /// @notice End a campaign early
@@ -331,7 +413,10 @@ contract WorldCampaignManager is Ownable {
         Campaign storage campaign = getCampaign[campaignId];
 
         require(campaign.token != address(0), CampaignNotFound());
-        require(!campaign.wasEndedEarly && campaign.endsAt > block.timestamp, CampaignEnded());
+        require(
+            !campaign.wasEndedEarly && campaign.endsAt > block.timestamp,
+            CampaignEnded()
+        );
 
         campaign.wasEndedEarly = true;
 
