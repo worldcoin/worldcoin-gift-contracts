@@ -171,7 +171,6 @@ contract WorldCampaignManager is Ownable {
         require(addressBook.addressVerifiedUntil(recipient) >= block.timestamp, NotVerified());
         require(block.timestamp < campaign.endsAt && !campaign.wasEndedEarly, CampaignEnded());
         require(addressBook.addressVerifiedUntil(msg.sender) >= block.timestamp, NotVerified());
-        require(getSponsoredRecipient[campaignId][msg.sender] == address(0), AlreadyParticipated());
         require(getClaimStatus[campaignId][recipient] == ClaimStatus.NotSponsored, AlreadyParticipated());
 
         getSponsor[campaignId][recipient] = msg.sender;
@@ -260,7 +259,7 @@ contract WorldCampaignManager is Ownable {
         uint256 lowerBound,
         uint256 upperBound,
         uint256 seed
-    ) external onlyOwner returns (uint256 campaignId) {
+    ) external returns (uint256 campaignId) {
         require(initialDeposit > 0, InvalidConfiguration());
         require(lowerBound <= upperBound, InvalidConfiguration());
         require(address(token) != address(0), InvalidConfiguration());
