@@ -5,6 +5,7 @@ libs = ["lib"]
 via-ir = true
 optimizer = true
 gas_reports = ["*"]
+fs_permissions = [{ access = "read", path = "./deployments.toml" }]
 
 [lint]
 exclude_lints = ["screaming-snake-case-immutable"]
