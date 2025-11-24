@@ -234,14 +234,14 @@ contract WorldCampaignManager is Ownable {
             rewardAmount = campaign.lowerBound + (randomness % range);
         }
 
-        require(campaign.funds >= rewardAmount, InsufficientFunds());
-        unchecked {
-            campaign.funds -= rewardAmount;
-        }
+        // require(campaign.funds >= rewardAmount, InsufficientFunds());
+        // unchecked {
+        //     campaign.funds -= rewardAmount;
+        // }
 
         emit Claimed(campaignId, msg.sender, rewardAmount);
 
-        SafeTransferLib.safeTransfer(campaign.token, msg.sender, rewardAmount);
+        // SafeTransferLib.safeTransfer(campaign.token, msg.sender, rewardAmount);
     }
 
     /// @notice Check if a sponsor can sponsor a recipient in a campaign
@@ -315,12 +315,12 @@ contract WorldCampaignManager is Ownable {
 
         emit CampaignCreated(campaignId);
 
-        SafeTransferLib.safeTransferFrom(
-            address(token),
-            msg.sender,
-            address(this),
-            initialDeposit
-        );
+        // SafeTransferLib.safeTransferFrom(
+        //     address(token),
+        //     msg.sender,
+        //     address(this),
+        //     initialDeposit
+        // );
     }
 
     /// @notice Fund an existing campaign
