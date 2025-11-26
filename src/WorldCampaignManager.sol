@@ -3,7 +3,6 @@ pragma solidity ^0.8.13;
 
 import {Ownable} from "solady/auth/Ownable.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
-import {IAddressBook} from "./interfaces/IAddressBook.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {EfficientHashLib} from "solady/utils/EfficientHashLib.sol";
 
@@ -122,9 +121,6 @@ contract WorldCampaignManager is Ownable {
     ///                              CONFIG STORAGE                            ///
     //////////////////////////////////////////////////////////////////////////////
 
-    /// @notice The address book contract that will be used to check verification status
-    IAddressBook public immutable addressBook;
-
     /// @notice The next campaign ID to be assigned
     uint256 private nextCampaignId = 1;
 
@@ -146,16 +142,9 @@ contract WorldCampaignManager is Ownable {
     //////////////////////////////////////////////////////////////////////////////
 
     /// @notice Create a new WorldCampaignManager contract
-    /// @param _addressBook The address book contract that will be used to check verification status
     /// @custom:throws InvalidConfiguration Thrown when the address book address is zero
-    constructor(IAddressBook _addressBook) {
-        require(address(_addressBook) != address(0), InvalidConfiguration());
-
-        addressBook = _addressBook;
-
+    constructor() {
         _initializeOwner(msg.sender);
-
-        emit WorldCampaignManagerInitialized(address(addressBook));
     }
 
     ///////////////////////////////////////////////////////////////////////////////

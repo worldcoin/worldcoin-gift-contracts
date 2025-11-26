@@ -12,13 +12,9 @@ contract WorldCampaignManagerScript is Script, Config {
     function setUp() public {}
 
     function run() public {
-        _loadConfig("./deployments.toml", true);
-
-        address addressBook = config.get("addressBook").toAddress();
-
         vm.startBroadcast();
 
-        campaignManager = new WorldCampaignManager(IAddressBook(addressBook));
+        campaignManager = new WorldCampaignManager();
 
         vm.stopBroadcast();
     }
