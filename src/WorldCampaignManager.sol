@@ -262,9 +262,7 @@ contract WorldCampaignManager is Ownable {
             recipient == address(0) ||
             campaign.token == address(0) ||
             getClaimStatus[campaignId][recipient] != ClaimStatus.NotSponsored ||
-            addressBook.addressVerifiedUntil(recipient) < block.timestamp ||
             block.timestamp >= campaign.endsAt ||
-            addressBook.addressVerifiedUntil(sponsor) < block.timestamp ||
             getSponsoredRecipient[campaignId][sponsor] != address(0)
         ) {
             return false;
