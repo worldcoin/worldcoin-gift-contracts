@@ -134,6 +134,14 @@ contract WorldCampaignManagerTest is Test {
         campaignManager.fundCampaign(campaignId, 10 ether);
     }
 
+    function testCannotFundWithZeroAmount() public {
+        uint256 campaignId =
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
+
+        vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector);
+        campaignManager.fundCampaign(campaignId, 0);
+    }
+
     function testCanWithdrawUnclaimedFunds() public {
         uint256 campaignId =
             campaignManager.createCampaign(token, 50 ether, block.timestamp + 1 days, 1 ether, 10 ether, 100);

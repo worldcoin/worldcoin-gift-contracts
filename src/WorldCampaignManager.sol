@@ -288,12 +288,14 @@ contract WorldCampaignManager is Ownable {
     /// @notice Fund an existing campaign
     /// @param campaignId The ID of the campaign to fund
     /// @param amount The amount of funds to add to the campaign
+    /// @custom:throws InvalidConfiguration Thrown when the amount is zero
     /// @custom:throws CampaignNotFound Thrown when the campaign does not exist
     /// @custom:throws CampaignEnded Thrown when the campaign has already ended
     /// @dev For simplicity, we allow any address to fund a campaign
     function fundCampaign(uint256 campaignId, uint256 amount) external {
         Campaign storage campaign = getCampaign[campaignId];
 
+        require(amount > 0, InvalidConfiguration());
         require(campaign.token != address(0), CampaignNotFound());
         require(campaign.endsAt > block.timestamp, CampaignEnded());
 
