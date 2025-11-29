@@ -187,7 +187,6 @@ contract WorldCampaignManager is Ownable {
     /// @custom:throws CampaignNotFound Thrown when the campaign does not exist
     /// @custom:throws CampaignEnded Thrown when the campaign has already ended
     /// @custom:throws HasNotSponsoredYet Thrown when the recipient has not sponsored anyone yet
-    /// @custom:throws InvalidConfiguration Thrown when the provided sponsor did not sponsor the caller
     /// @custom:throws NotSponsored Thrown when the recipient has not been sponsored or has already claimed their reward
     function claim(uint256 campaignId) external returns (uint256 rewardAmount) {
         Campaign storage campaign = getCampaign[campaignId];
