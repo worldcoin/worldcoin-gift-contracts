@@ -153,6 +153,7 @@ contract WorldGiftManager is Ownable, EIP712 {
     /// @custom:throws GiftAlreadyExists if the gift ID already exists
     /// @custom:throws TokenNotAllowed if the token is not allowed for gifting
     /// @custom:throws InvalidRecipient if the recipient is the zero address
+    /// @dev If the sender delegates to a contract implementation, that contract must implement ERC-1271.
     function giftWithSig(
         IERC20 token,
         uint256 giftId,
