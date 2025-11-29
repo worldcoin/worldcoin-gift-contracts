@@ -15,9 +15,6 @@ contract WorldGiftManager is Ownable, EIP712 {
     ///                                  ERRORS                                ///
     //////////////////////////////////////////////////////////////////////////////
 
-    /// @notice Thrown when the contract is misconfigured
-    error InvalidConfiguration();
-
     /// @notice Thrown when trying to redeem or cancel a non-existent gift
     error GiftNotFound();
 
