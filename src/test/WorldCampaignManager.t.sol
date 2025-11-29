@@ -134,6 +134,16 @@ contract WorldCampaignManagerTest is Test {
         campaignManager.fundCampaign(campaignId, 10 ether);
     }
 
+    function testCannotFundFreshlyEndedCampaign() public {
+        uint256 campaignId =
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 1 days, 1 ether, 10 ether, 100);
+
+        vm.warp(block.timestamp + 1 days);
+
+        vm.expectRevert(WorldCampaignManager.CampaignEnded.selector);
+        campaignManager.fundCampaign(campaignId, 10 ether);
+    }
+
     function testCannotFundWithZeroAmount() public {
         uint256 campaignId =
             campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1 ether, 10 ether, 100);
@@ -531,6 +541,16 @@ contract WorldCampaignManagerTest is Test {
 
         vm.prank(user1);
         vm.expectRevert(Ownable.Unauthorized.selector);
+        campaignManager.endCampaignEarly(campaignId);
+    }
+
+    function testCannotEndCampaignEarlyOnSameBlockItExpires() public {
+        uint256 campaignId =
+            campaignManager.createCampaign(token, 50 ether, block.timestamp + 1 days, 1 ether, 10 ether, 100);
+
+        vm.warp(block.timestamp + 1 days);
+
+        vm.expectRevert(WorldCampaignManager.CampaignEnded.selector);
         campaignManager.endCampaignEarly(campaignId);
     }
 

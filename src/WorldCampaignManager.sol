@@ -296,7 +296,7 @@ contract WorldCampaignManager is Ownable {
 
         require(amount > 0, InvalidConfiguration());
         require(campaign.token != address(0), CampaignNotFound());
-        require(campaign.endsAt > block.timestamp, CampaignEnded());
+        require(block.timestamp < campaign.endsAt, CampaignEnded());
 
         unchecked {
             campaign.funds += amount;
@@ -332,7 +332,7 @@ contract WorldCampaignManager is Ownable {
         Campaign storage campaign = getCampaign[campaignId];
 
         require(campaign.token != address(0), CampaignNotFound());
-        require(!campaign.wasEndedEarly && campaign.endsAt > block.timestamp, CampaignEnded());
+        require(!campaign.wasEndedEarly && block.timestamp < campaign.endsAt, CampaignEnded());
 
         campaign.wasEndedEarly = true;
 
