@@ -187,7 +187,6 @@ contract WorldCampaignManager is Ownable {
     /// @custom:throws CampaignNotFound Thrown when the campaign does not exist
     /// @custom:throws CampaignEnded Thrown when the campaign has already ended
     /// @custom:throws HasNotSponsoredYet Thrown when the recipient has not sponsored anyone yet
-    /// @custom:throws InvalidConfiguration Thrown when the provided sponsor did not sponsor the caller
     /// @custom:throws NotSponsored Thrown when the recipient has not been sponsored or has already claimed their reward
     function claim(uint256 campaignId) external returns (uint256 rewardAmount) {
         Campaign storage campaign = getCampaign[campaignId];
@@ -288,14 +287,16 @@ contract WorldCampaignManager is Ownable {
     /// @notice Fund an existing campaign
     /// @param campaignId The ID of the campaign to fund
     /// @param amount The amount of funds to add to the campaign
+    /// @custom:throws InvalidConfiguration Thrown when the amount is zero
     /// @custom:throws CampaignNotFound Thrown when the campaign does not exist
     /// @custom:throws CampaignEnded Thrown when the campaign has already ended
     /// @dev For simplicity, we allow any address to fund a campaign
     function fundCampaign(uint256 campaignId, uint256 amount) external {
         Campaign storage campaign = getCampaign[campaignId];
 
+        require(amount > 0, InvalidConfiguration());
         require(campaign.token != address(0), CampaignNotFound());
-        require(campaign.endsAt > block.timestamp, CampaignEnded());
+        require(block.timestamp < campaign.endsAt, CampaignEnded());
 
         unchecked {
             campaign.funds += amount;
@@ -331,7 +332,7 @@ contract WorldCampaignManager is Ownable {
         Campaign storage campaign = getCampaign[campaignId];
 
         require(campaign.token != address(0), CampaignNotFound());
-        require(!campaign.wasEndedEarly && campaign.endsAt > block.timestamp, CampaignEnded());
+        require(!campaign.wasEndedEarly && block.timestamp < campaign.endsAt, CampaignEnded());
 
         campaign.wasEndedEarly = true;
 
