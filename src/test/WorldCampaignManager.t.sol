@@ -54,7 +54,7 @@ contract WorldCampaignManagerTest is Test {
     ) public {
         vm.assume(_lowerBound < _upperBound);
         vm.assume(_bonusRewardAmount > _upperBound);
-        vm.assume(_bonusRewardThreshold > _lowerBound && _bonusRewardThreshold < _upperBound);
+        vm.assume(_bonusRewardThreshold >= _lowerBound && _bonusRewardThreshold <= _upperBound);
 
         vm.expectEmit(true, true, true, true);
         emit WorldCampaignManager.CampaignCreated(1);
@@ -119,13 +119,13 @@ contract WorldCampaignManagerTest is Test {
         vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector); // Bonus reward threshold must be less than upper bound
         campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1, 100, 150, 200);
 
-        vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector); // Bonus reward threshold must be more than lower bound
+        vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector); // Bonus reward threshold >= lower bound
         campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 100, 200, 50, 300);
 
-        vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector); // Bonus reward amount must be greater than upper bound
+        vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector); // Bonus reward amount must be >= upper bound
         campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1, 100, 150, 80);
 
-        vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector); // Bonus reward threshold must be lower than reward amount
+        vm.expectRevert(WorldCampaignManager.InvalidConfiguration.selector); // Bonus reward threshold <= reward amount
         campaignManager.createCampaign(token, 50 ether, block.timestamp + 10 days, 1, 100, 90, 80);
     }
 
@@ -442,19 +442,19 @@ contract WorldCampaignManagerTest is Test {
 
         vm.prank(user2);
         vm.expectEmit(true, true, true, true);
-        emit WorldCampaignManager.Claimed(campaignId, user2, 7_393_236_353_223_753_005);
+        emit WorldCampaignManager.Claimed(campaignId, user2, 8_047_831_919_398_168_731);
 
         campaignManager.claim(campaignId);
 
         (, uint256 availableFunds,,,,,,,) = campaignManager.getCampaign(campaignId);
 
-        assertEq(availableFunds, 50 ether - 7_393_236_353_223_753_005);
-        assertEq(token.balanceOf(user2), 7_393_236_353_223_753_005);
+        assertEq(availableFunds, 50 ether - 8_047_831_919_398_168_731);
+        assertEq(token.balanceOf(user2), 8_047_831_919_398_168_731);
         assertEq(
             uint8(campaignManager.getClaimStatus(campaignId, user2)),
             uint8(WorldCampaignManager.ClaimStatus.AlreadyClaimed)
         );
-        assertEq(token.balanceOf(address(campaignManager)), 50 ether - 7_393_236_353_223_753_005);
+        assertEq(token.balanceOf(address(campaignManager)), 50 ether - 8_047_831_919_398_168_731);
     }
 
     function testClaimRandomness(uint256 lowerBound, uint256 upperBound) public {

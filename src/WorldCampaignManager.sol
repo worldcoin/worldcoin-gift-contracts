@@ -212,7 +212,7 @@ contract WorldCampaignManager is Ownable {
         } else {
             uint256 range = campaign.upperBound - campaign.lowerBound;
             uint256 randomness = uint256(EfficientHashLib.hash(abi.encodePacked(campaign.randomnessSeed, msg.sender)));
-            rewardAmount = campaign.lowerBound + (randomness % range);
+            rewardAmount = campaign.lowerBound + (randomness % (range + 1));
         }
 
         if (rewardAmount >= campaign.bonusRewardThreshold) {
@@ -281,7 +281,6 @@ contract WorldCampaignManager is Ownable {
         require(bonusRewardAmount >= upperBound, InvalidConfiguration());
         require(bonusRewardThreshold >= lowerBound, InvalidConfiguration());
         require(bonusRewardThreshold <= upperBound, InvalidConfiguration());
-        require(bonusRewardAmount >= bonusRewardThreshold, InvalidConfiguration());
 
         unchecked {
             campaignId = nextCampaignId++;
