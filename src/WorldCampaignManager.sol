@@ -211,8 +211,7 @@ contract WorldCampaignManager is Ownable {
             rewardAmount = campaign.lowerBound;
         } else {
             uint256 range = campaign.upperBound - campaign.lowerBound;
-            uint256 randomness =
-                uint256(EfficientHashLib.hash(abi.encodePacked(campaign.randomnessSeed, sponsor, msg.sender)));
+            uint256 randomness = uint256(EfficientHashLib.hash(abi.encodePacked(campaign.randomnessSeed, msg.sender)));
             rewardAmount = campaign.lowerBound + (randomness % range);
         }
 

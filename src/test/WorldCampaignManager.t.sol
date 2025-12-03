@@ -442,19 +442,19 @@ contract WorldCampaignManagerTest is Test {
 
         vm.prank(user2);
         vm.expectEmit(true, true, true, true);
-        emit WorldCampaignManager.Claimed(campaignId, user2, 20_000_000_000_000_000_000);
+        emit WorldCampaignManager.Claimed(campaignId, user2, 7_393_236_353_223_753_005);
 
         campaignManager.claim(campaignId);
 
         (, uint256 availableFunds,,,,,,,) = campaignManager.getCampaign(campaignId);
 
-        assertEq(availableFunds, 50 ether - 20_000_000_000_000_000_000);
-        assertEq(token.balanceOf(user2), 20_000_000_000_000_000_000);
+        assertEq(availableFunds, 50 ether - 7_393_236_353_223_753_005);
+        assertEq(token.balanceOf(user2), 7_393_236_353_223_753_005);
         assertEq(
             uint8(campaignManager.getClaimStatus(campaignId, user2)),
             uint8(WorldCampaignManager.ClaimStatus.AlreadyClaimed)
         );
-        assertEq(token.balanceOf(address(campaignManager)), 50 ether - 20_000_000_000_000_000_000);
+        assertEq(token.balanceOf(address(campaignManager)), 50 ether - 7_393_236_353_223_753_005);
     }
 
     function testClaimRandomness(uint256 lowerBound, uint256 upperBound) public {
