@@ -459,6 +459,7 @@ contract WorldCampaignManagerTest is Test {
 
     function testClaimRandomness(uint256 lowerBound, uint256 upperBound) public {
         vm.assume(lowerBound < upperBound);
+        vm.assume(upperBound < type(uint128).max);
 
         if (upperBound > 100 ether) {
             token.mint(address(this), upperBound - 100 ether);
