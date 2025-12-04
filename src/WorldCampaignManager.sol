@@ -332,7 +332,7 @@ contract WorldCampaignManager is Ownable {
         Campaign storage campaign = getCampaign[campaignId];
 
         require(campaign.token != address(0), CampaignNotFound());
-        require(block.timestamp > campaign.endsAt, CampaignActive());
+        require(block.timestamp >= campaign.endsAt, CampaignActive());
 
         uint256 unclaimedFunds = campaign.funds;
         campaign.funds = 0;
