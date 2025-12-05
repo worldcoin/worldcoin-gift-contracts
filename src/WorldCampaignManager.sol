@@ -32,6 +32,9 @@ contract WorldCampaignManager is Ownable {
     /// @notice Thrown when a user tries to sponsor themselves
     error CannotSponsorSelf();
 
+    /// @notice Thrown when a user tries to sponsor the user they were sponsored by
+    error CannotSponsorSponsor();
+
     /// @notice Thrown when an address is not verified
     error NotVerified();
 
@@ -100,6 +103,8 @@ contract WorldCampaignManager is Ownable {
     /// @param wasEndedEarly Whether the campaign was ended early
     /// @param lowerBound The minimum reward amount
     /// @param upperBound The maximum reward amount
+    /// @param bonusRewardThreshold The threshold for bonus rewards
+    /// @param bonusRewardAmount The amount for bonus rewards
     /// @param randomnessSeed A seed used for randomness in reward calculation
     struct Campaign {
         address token;
@@ -108,6 +113,8 @@ contract WorldCampaignManager is Ownable {
         bool wasEndedEarly;
         uint256 lowerBound;
         uint256 upperBound;
+        uint256 bonusRewardThreshold;
+        uint256 bonusRewardAmount;
         uint256 randomnessSeed;
     }
 
@@ -188,7 +195,6 @@ contract WorldCampaignManager is Ownable {
     /// @custom:throws CampaignNotFound Thrown when the campaign does not exist
     /// @custom:throws CampaignEnded Thrown when the campaign has already ended
     /// @custom:throws HasNotSponsoredYet Thrown when the recipient has not sponsored anyone yet
-    /// @custom:throws InvalidConfiguration Thrown when the provided sponsor did not sponsor the caller
     /// @custom:throws NotSponsored Thrown when the recipient has not been sponsored or has already claimed their reward
     function claim(uint256 campaignId) external returns (uint256 rewardAmount) {
         Campaign storage campaign = getCampaign[campaignId];
@@ -211,16 +217,12 @@ contract WorldCampaignManager is Ownable {
             rewardAmount = campaign.lowerBound;
         } else {
             uint256 range = campaign.upperBound - campaign.lowerBound;
-            uint256 randomness = uint256(
-                EfficientHashLib.hash(
-                    abi.encodePacked(
-                        campaign.randomnessSeed,
-                        sponsor,
-                        msg.sender
-                    )
-                )
-            );
-            rewardAmount = campaign.lowerBound + (randomness % range);
+            uint256 randomness = uint256(EfficientHashLib.hash(abi.encodePacked(campaign.randomnessSeed, msg.sender)));
+            rewardAmount = campaign.lowerBound + (randomness % (range + 1));
+        }
+
+        if (rewardAmount >= campaign.bonusRewardThreshold) {
+            rewardAmount = campaign.bonusRewardAmount;
         }
 
         // require(campaign.funds >= rewardAmount, InsufficientFunds());
@@ -270,7 +272,8 @@ contract WorldCampaignManager is Ownable {
     /// @param endTimestamp The timestamp when the campaign ends
     /// @param lowerBound The minimum reward amount
     /// @param upperBound The maximum reward amount
-    /// @param seed A seed used for randomness in reward calculation
+    /// @param bonusRewardThreshold The threshold for bonus rewards
+    /// @param bonusRewardAmount The amount for bonus rewards
     /// @return campaignId The ID of the created campaign
     /// @custom:throws InvalidConfiguration Thrown when the configuration is invalid
     function createCampaign(
@@ -279,12 +282,16 @@ contract WorldCampaignManager is Ownable {
         uint256 endTimestamp,
         uint256 lowerBound,
         uint256 upperBound,
-        uint256 seed
-    ) external returns (uint256 campaignId) {
+        uint256 bonusRewardThreshold,
+        uint256 bonusRewardAmount
+    ) external onlyOwner returns (uint256 campaignId) {
         require(initialDeposit > 0, InvalidConfiguration());
         require(lowerBound <= upperBound, InvalidConfiguration());
         require(address(token) != address(0), InvalidConfiguration());
         require(endTimestamp > block.timestamp, InvalidConfiguration());
+        require(bonusRewardAmount >= upperBound, InvalidConfiguration());
+        require(bonusRewardThreshold >= lowerBound, InvalidConfiguration());
+        require(bonusRewardThreshold <= upperBound, InvalidConfiguration());
 
         unchecked {
             campaignId = nextCampaignId++;
@@ -297,7 +304,9 @@ contract WorldCampaignManager is Ownable {
             wasEndedEarly: false,
             lowerBound: lowerBound,
             upperBound: upperBound,
-            randomnessSeed: seed
+            bonusRewardThreshold: bonusRewardThreshold,
+            bonusRewardAmount: bonusRewardAmount,
+            randomnessSeed: block.prevrandao
         });
 
         emit CampaignCreated(campaignId);
@@ -313,14 +322,16 @@ contract WorldCampaignManager is Ownable {
     /// @notice Fund an existing campaign
     /// @param campaignId The ID of the campaign to fund
     /// @param amount The amount of funds to add to the campaign
+    /// @custom:throws InvalidConfiguration Thrown when the amount is zero
     /// @custom:throws CampaignNotFound Thrown when the campaign does not exist
     /// @custom:throws CampaignEnded Thrown when the campaign has already ended
     /// @dev For simplicity, we allow any address to fund a campaign
     function fundCampaign(uint256 campaignId, uint256 amount) external {
         Campaign storage campaign = getCampaign[campaignId];
 
+        require(amount > 0, InvalidConfiguration());
         require(campaign.token != address(0), CampaignNotFound());
-        require(campaign.endsAt > block.timestamp, CampaignEnded());
+        require(block.timestamp < campaign.endsAt, CampaignEnded());
 
         unchecked {
             campaign.funds += amount;
@@ -342,7 +353,7 @@ contract WorldCampaignManager is Ownable {
         Campaign storage campaign = getCampaign[campaignId];
 
         require(campaign.token != address(0), CampaignNotFound());
-        require(block.timestamp > campaign.endsAt, CampaignActive());
+        require(block.timestamp >= campaign.endsAt, CampaignActive());
 
         uint256 unclaimedFunds = campaign.funds;
         campaign.funds = 0;
@@ -365,10 +376,7 @@ contract WorldCampaignManager is Ownable {
         Campaign storage campaign = getCampaign[campaignId];
 
         require(campaign.token != address(0), CampaignNotFound());
-        require(
-            !campaign.wasEndedEarly && campaign.endsAt > block.timestamp,
-            CampaignEnded()
-        );
+        require(!campaign.wasEndedEarly && block.timestamp < campaign.endsAt, CampaignEnded());
 
         campaign.wasEndedEarly = true;
 
