@@ -16,7 +16,8 @@ contract FundCampaignScript is Script {
 
     function run() public {
         // TODO set to correct amount
-        uint256 amount = 0.01 ether;
+        uint256 amount = 0.01 ether; // WLD has 18 decimals, like eth
+        // ===============================================
 
         WorldCampaignManager campaignManager = WorldCampaignManager(
             campaignManagerAddress
